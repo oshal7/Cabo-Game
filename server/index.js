@@ -12,7 +12,9 @@ const app = express();
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+  cors: { origin: process.env.ALLOWED_ORIGIN || '*' },
+});
 
 function broadcastLobby() {
   io.emit('rooms_list', rooms.list());

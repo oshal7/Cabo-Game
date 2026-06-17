@@ -68,5 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('menu-btn').addEventListener('click', () => ActiveGame.openMenu());
 
   Screens.show('setup');
-  MP.ensureSocket();
+  // Only open a socket eagerly if we have a saved room to rejoin (e.g. after
+  // a refresh mid-game) — otherwise wait until the user picks Online mode,
+  // so local play never depends on the multiplayer backend being reachable.
+  if (sessionStorage.getItem('cabo_mp_session')) {
+    ActiveGame = MP;
+    MP.ensureSocket();
+  }
 });

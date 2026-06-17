@@ -12,7 +12,7 @@ const MP = (function () {
 
   function ensureSocket() {
     if (socket) return;
-    socket = io();
+    socket = window.CABO_SERVER_URL ? io(window.CABO_SERVER_URL) : io();
     socket.on('rooms_list', renderRoomsList);
     socket.on('room_update', (room) => { lastRoomSummary = room; renderRoomScreen(room); });
     socket.on('game_state', onGameState);
