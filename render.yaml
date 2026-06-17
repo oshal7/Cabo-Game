@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: cabo-game-server
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: ALLOWED_ORIGIN
+        value: "*"
