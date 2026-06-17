@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CABO — The Card Game</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="css/style.css"/>
+</head>
+<body>
+<div id="scale-root">
+
+<!-- MENU / SETUP -->
+<div id="setup">
+  <div class="logo">CABO</div>
+  <div class="logo-sub">THE CARD GAME</div>
+
+  <div class="sbox">
+    <div class="slbl">PLAY MODE</div>
+    <div class="seg" id="playmode-seg">
+      <button class="sb on" data-playmode="local">Local</button>
+      <button class="sb" data-playmode="online">Online</button>
+    </div>
+  </div>
+
+  <!-- LOCAL PANEL -->
+  <div class="sbox" id="local-panel" style="margin-top:.7rem">
+    <div class="slbl">PLAYERS</div>
+    <div class="seg" id="np-seg">
+      <button class="sb" data-seg="np" data-val="2">2</button>
+      <button class="sb on" data-seg="np" data-val="3">3</button>
+      <button class="sb" data-seg="np" data-val="4">4</button>
+    </div>
+    <div class="slbl">YOUR NAME</div>
+    <input id="pname" type="text" value="You" maxlength="12"/>
+    <div class="slbl">MODE</div>
+    <div class="seg" id="mode-seg">
+      <button class="sb on" data-seg="mode" data-val="solo">vs AI</button>
+      <button class="sb" data-seg="mode" data-val="pass">Pass &amp; Play</button>
+    </div>
+    <div class="slbl">AI DIFFICULTY</div>
+    <div class="seg" id="diff-seg">
+      <button class="sb" data-seg="diff" data-val="easy">Easy</button>
+      <button class="sb on" data-seg="diff" data-val="med">Medium</button>
+      <button class="sb" data-seg="diff" data-val="hard">Hard</button>
+    </div>
+    <button class="deal-btn" id="deal-btn">DEAL CARDS</button>
+    <div class="rl" id="rules-toggle">▸ Show Rules</div>
+    <div class="rdrop" id="rules-drop">
+      <b>Values:</b> A=1 · 2–Q=face · K=0 · Joker=−2<br>
+      <b>7/8</b> Peek one of your own cards &nbsp;<b>9/10</b> Peek an opponent's card<br>
+      <b>J</b> Skip next player's turn &nbsp;<b>Q</b> Blind swap &nbsp;<b>K</b> Seen swap<br>
+      <b>Match:</b> Discard same rank as pile top → free discard (once per player)<br>
+      <b>Cabo:</b> Call on your turn. Everyone else gets one final turn. Lowest wins. Wrong Cabo = +5 penalty.
+    </div>
+  </div>
+
+  <!-- ONLINE PANEL -->
+  <div class="sbox" id="online-panel" style="display:none;margin-top:.7rem">
+    <div class="slbl">YOUR NAME</div>
+    <input id="mp-name" type="text" maxlength="16" placeholder="Your name"/>
+
+    <div class="mp-divider">CREATE A ROOM</div>
+    <div class="slbl">PLAYERS</div>
+    <div class="seg" id="mp-np-seg">
+      <button class="sb" data-mpnp="2">2</button>
+      <button class="sb on" data-mpnp="3">3</button>
+      <button class="sb" data-mpnp="4">4</button>
+    </div>
+    <button class="deal-btn" id="mp-create-btn">CREATE ROOM</button>
+
+    <div class="mp-divider">JOIN WITH A CODE</div>
+    <input id="mp-code" type="text" maxlength="4" placeholder="ROOM CODE"/>
+    <button class="deal-btn ghost" id="mp-join-btn" style="margin-top:.6rem">JOIN</button>
+
+    <div class="mp-divider">OPEN ROOMS (max 3 at a time)</div>
+    <div class="mp-rooms" id="mp-rooms-list"><div class="mp-empty">No open rooms right now.</div></div>
+
+    <div class="mp-err" id="mp-err"></div>
+  </div>
+</div>
+
+<!-- MULTIPLAYER WAITING ROOM -->
+<div id="mp-room">
+  <div class="logo" style="font-size:2.1rem">CABO</div>
+  <div class="sbox">
+    <div class="mp-room-code">
+      <div class="big" id="mp-room-code-big">----</div>
+      <div class="sub">ROOM CODE — SHARE WITH FRIENDS</div>
+    </div>
+    <div class="slbl">PLAYERS (<span id="mp-room-count">0</span>/<span id="mp-room-max">0</span>)</div>
+    <div class="mp-seats" id="mp-seats"></div>
+    <button class="deal-btn" id="mp-start-btn">START GAME</button>
+    <div class="mp-back" id="mp-leave-btn">‹ Leave Room</div>
+    <div class="mp-err" id="mp-room-err"></div>
+  </div>
+</div>
+
+<!-- GAME (shared by local + online) -->
+<div id="game">
+  <div class="topbar">
+    <button class="cabo-btn" id="cabo-btn">CALL CABO</button>
+    <div class="rbadge" id="rbadge">ROUND 1</div>
+    <div class="tr">
+      <button class="sc-toggle" id="scores-btn">Scores</button>
+      <button class="mbtn" id="menu-btn">≡ Menu</button>
+    </div>
+  </div>
+  <div class="scoreboard" id="scoreboard"></div>
+  <div class="opps" id="opps"></div>
+  <div class="center">
+    <div class="pw">
+      <div class="plbl">DECK</div>
+      <div id="deck-el"></div>
+      <div class="pcnt" id="deck-cnt"></div>
+    </div>
+    <div class="drawn-zone" id="dz">
+      <div class="dz-lbl">DRAWN</div>
+      <div class="dz-card" id="dz-card"><div class="dz-empty">+</div></div>
+      <div class="dz-acts" id="dz-acts"></div>
+    </div>
+    <div class="pw">
+      <div class="plbl">DISCARD</div>
+      <div id="disc-el"></div>
+      <div class="pcnt" id="disc-cnt"></div>
+    </div>
+  </div>
+  <div class="glog" id="glog">&nbsp;</div>
+  <div class="abar">
+    <div class="amsg" id="amsg">&nbsp;</div>
+    <div class="brow" id="brow"></div>
+  </div>
+  <div class="hz">
+    <div class="ylbl">
+      <div class="tdot" id="ydot" style="display:none"></div>
+      <span id="ylbl">YOU</span>
+      <span class="spip" id="ypip">?</span>
+    </div>
+    <div class="crow" id="ycards"></div>
+  </div>
+</div>
+
+<!-- OVERLAY -->
+<div id="ov">
+  <div class="ovbox">
+    <div class="ovtitle" id="ovt"></div>
+    <div class="ovbody" id="ovb"></div>
+    <div class="ovbtns" id="ovbtns"></div>
+  </div>
+</div>
+
+</div><!-- /scale-root -->
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="js/shared-ui.js"></script>
+<script src="js/local-game.js"></script>
+<script src="js/multiplayer.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
