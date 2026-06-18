@@ -115,7 +115,7 @@ function applyAction(game, seat, type, payload = {}) {
   const banners = [];
   const flashes = [];
   const fail = (error) => ({ ok: false, error, banners, flashes });
-  const ok = () => ({ ok: true, banners, flashes });
+  const ok = (extra) => ({ ok: true, banners, flashes, ...extra });
 
   if (game.phase === 'reveal') return fail('Round is over.');
   if (seat !== game.turn) return fail('Not your turn.');
@@ -197,13 +197,13 @@ function applyAction(game, seat, type, payload = {}) {
       if (!(idx >= 0 && idx < me.cards.length)) return fail('Invalid card.');
       me.cards[idx].known = true;
       const c = me.cards[idx];
-      banners.push({ scope: seat, text: `Card ${idx + 1}: ${c.rank}${c.suit}`, level: 'info' });
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked their own card.`, level: 'info' });
+      flashes.push({ kind: 'peek', seat, idx, by: seat, label: `${me.name} peeked!` });
       game.discard.push(game.drawnCard);
       game.drawnCard = null;
       game.phase = 'play';
       endTurn(game);
-      return ok();
+      return ok({ reveal: { seat, idx, rank: c.rank, suit: c.suit } });
     }
     case 'choose_peek_opp': {
       if (game.phase !== 'spec-peek-opp-who') return fail('Wrong phase.');
@@ -220,14 +220,13 @@ function applyAction(game, seat, type, payload = {}) {
       const opp = game.players[oppSeat];
       if (!(idx >= 0 && idx < opp.cards.length)) return fail('Invalid card.');
       const c = opp.cards[idx];
-      banners.push({ scope: seat, text: `${opp.name}'s card ${idx + 1}: ${c.rank}${c.suit}`, level: 'info' });
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked ${opp.name}'s card.`, level: 'info' });
-      flashes.push({ kind: 'peek', seat: oppSeat, idx, label: `${me.name} peeked!` });
+      flashes.push({ kind: 'peek', seat: oppSeat, idx, by: seat, label: `${me.name} peeked!` });
       game.discard.push(game.drawnCard);
       game.drawnCard = null;
       game.phase = 'play';
       endTurn(game);
-      return ok();
+      return ok({ reveal: { seat: oppSeat, idx, rank: c.rank, suit: c.suit } });
     }
     case 'swap_pick1': {
       if (game.phase !== 'spec-swap1') return fail('Wrong phase.');

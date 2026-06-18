@@ -276,9 +276,11 @@ const Local = (function () {
     }
     if (G.phase === 'spec-peek-own') {
       p.cards[idx].known = true;
-      bnr(`Card ${idx + 1}: ${p.cards[idx].rank}${p.cards[idx].suit}`, 'info'); sfx('peek');
       G.log = `You peeked your card ${idx + 1}.`;
-      G.discard.push(G.drawnCard); G.drawnCard = null; G.phase = 'play'; endTurn(); return;
+      G.discard.push(G.drawnCard); G.drawnCard = null; G.phase = 'play';
+      flashCard(0, idx, 'reveal', 'You peeked!');
+      setTimeout(endTurn, 1450);
+      return;
     }
     if (G.phase === 'spec-swap1') {
       G.swapPick1 = { owner: 0, idx };
@@ -294,10 +296,11 @@ const Local = (function () {
   }
   function oppClick(oi, idx) {
     if (G.phase === 'spec-peek-opp-pick' && G.peekOppWho === oi) {
-      let c = G.players[oi].cards[idx];
-      bnr(`${G.players[oi].name}'s card ${idx + 1}: ${c.rank}${c.suit}`, 'info'); sfx('peek');
       G.log = `You peeked ${G.players[oi].name}'s card ${idx + 1}.`;
-      G.discard.push(G.drawnCard); G.drawnCard = null; G.phase = 'play'; endTurn(); return;
+      G.discard.push(G.drawnCard); G.drawnCard = null; G.phase = 'play';
+      flashCard(oi, idx, 'reveal', `${G.players[oi].name}'s card`);
+      setTimeout(endTurn, 1450);
+      return;
     }
     if (G.phase === 'spec-swap2' && G.swapPick1) {
       let p1 = G.swapPick1;
@@ -457,6 +460,7 @@ const Local = (function () {
   function flashCard(ownerIdx, cardIdx, type, label) {
     render();
     if (type === 'peek') flashPeekBlur(`card-${ownerIdx}-${cardIdx}`, G.players[ownerIdx].cards[cardIdx], label, render);
+    if (type === 'reveal') flashPeekReveal(`card-${ownerIdx}-${cardIdx}`, G.players[ownerIdx].cards[cardIdx], label, render);
     if (type === 'swap') flashSwapGlow(`card-${ownerIdx}-${cardIdx}`);
   }
 

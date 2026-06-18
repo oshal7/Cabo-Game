@@ -216,6 +216,17 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 @keyframes peek-pulse-glow{from{box-shadow:0 0 10px rgba(74,222,128,.5)}to{box-shadow:0 0 26px rgba(74,222,128,1)}}
 @keyframes pov-in{from{opacity:0}to{opacity:1}}
 
+/* peek reveal — flips face-up to show the real card to the peeker */
+.card.peek-revealed{
+  border-color:var(--gold)!important;
+  box-shadow:0 0 22px rgba(212,168,67,.85)!important;
+  animation:cardFlipReveal .5s ease-out, peek-pulse-glow-gold 1.4s ease infinite alternate;
+}
+@keyframes cardFlipReveal{0%{transform:rotateY(90deg) scale(.85);opacity:.3}55%{transform:rotateY(-12deg) scale(1.05);opacity:1}100%{transform:rotateY(0) scale(1);opacity:1}}
+@keyframes peek-pulse-glow-gold{from{box-shadow:0 0 10px rgba(212,168,67,.5)}to{box-shadow:0 0 26px rgba(212,168,67,1)}}
+.peek-label.gold .pk-eye{filter:drop-shadow(0 0 4px var(--gold))}
+.peek-label.gold .pk-name{color:#f0d98c}
+
 /* swap arrow overlay */
 .swap-arrow{
   position:fixed;

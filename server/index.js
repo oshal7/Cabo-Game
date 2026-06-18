@@ -150,9 +150,16 @@ io.on('connection', (socket) => {
     if (!result.ok) return ack && ack(result);
     sendBanners(room, result.banners, seatIdx);
     if (result.flashes && result.flashes.length) io.to(room.code).emit('flashes', result.flashes);
-    broadcastGame(room);
-    if (room.game.phase === 'reveal') broadcastLobby();
-    ack && ack({ ok: true });
+    ack && ack({ ok: true, reveal: result.reveal });
+    // Give the peek flip/blur animation time to play before the next
+    // game_state wipes the card elements with a fresh re-render.
+    const hasPeek = result.flashes && result.flashes.some((f) => f.kind === 'peek');
+    const sendState = () => {
+      broadcastGame(room);
+      if (room.game.phase === 'reveal') broadcastLobby();
+    };
+    if (hasPeek) setTimeout(sendState, 1450);
+    else sendState();
   });
 
   socket.on('next_round', (_payload, ack) => {

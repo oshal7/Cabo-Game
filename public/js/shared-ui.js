@@ -44,6 +44,21 @@ function flashPeekBlur(cardElId, card, label, rerenderFn){
   sfx('peek');
   setTimeout(()=>rerenderFn(),1400);
 }
+function flashPeekReveal(cardElId, card, label, rerenderFn){
+  let cardEl=document.getElementById(cardElId);
+  if(!cardEl) return;
+  let revCard=mkCard(card,true,{});
+  revCard.classList.add('peek-revealed');
+  revCard.id=cardElId;
+  revCard.style.position='relative';
+  let lbl=document.createElement('div');
+  lbl.className='peek-label gold';
+  lbl.innerHTML='<div class="pk-eye">&#128065;</div>'+(label?'<div class="pk-name">'+label+'</div>':'');
+  revCard.appendChild(lbl);
+  cardEl.replaceWith(revCard);
+  sfx('reveal');
+  setTimeout(()=>rerenderFn(),1400);
+}
 function flashSwapGlow(cardElId){
   let cardEl=document.getElementById(cardElId);
   if(!cardEl) return;

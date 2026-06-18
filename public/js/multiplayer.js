@@ -121,12 +121,20 @@ const MP = (function () {
   }
 
   function action(type, payload) {
-    socket.emit('action', { type, payload: payload || {} }, (res) => { if (res && res.ok === false) bnr(res.error, 'warn'); });
+    socket.emit('action', { type, payload: payload || {} }, (res) => {
+      if (res && res.ok === false) return bnr(res.error, 'warn');
+      if (res && res.reveal) {
+        const { seat, idx, rank, suit } = res.reveal;
+        flashPeekReveal(`card-${seat}-${idx}`, { rank, suit }, 'You peeked!', () => {});
+      }
+    });
   }
 
   function onFlashes(flashes) {
     (flashes || []).forEach((f) => {
-      if (f.kind === 'peek') flashPeekBlur(`card-${f.seat}-${f.idx}`, null, f.label, () => { if (lastView) renderGame(lastView); });
+      // the peeker sees the real card via the reveal flip instead of a blur
+      if (f.kind === 'peek' && f.by === session.seat) return;
+      if (f.kind === 'peek') flashPeekBlur(`card-${f.seat}-${f.idx}`, null, f.label, () => {});
       if (f.kind === 'swap') flashSwapGlow(`card-${f.seat}-${f.idx}`);
     });
   }
