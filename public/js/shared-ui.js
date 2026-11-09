@@ -47,6 +47,39 @@ function mkCard(c,faceUp,opts={}){
 }
 function mkBtn(t,c,fn){let b=document.createElement('button');b.className=c;b.textContent=t;b.onclick=fn;return b;}
 
+// ── seat status (under each player's name) ──
+// While a player is on turn: spinner + "Thinking…/Deciding…" + a progress bar
+// (a countdown when a deadline is known, otherwise an indeterminate sweep).
+// Otherwise: their last move, so you can see what just happened.
+function seatStatus(o){
+  let el=document.createElement('div');el.className='seat-status';
+  if(o.active){
+    el.classList.add('busy');
+    el.innerHTML=`<div class="ss-row"><span class="spin"></span><span>${esc(o.label)}</span></div><div class="ss-bar"><i></i></div>`;
+    let bar=el.querySelector('i');
+    if(o.deadline&&o.totalMs){
+      let left=Math.max(0,o.deadline-Date.now());
+      bar.style.width=(100*left/o.totalMs)+'%';
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{bar.style.transition=`width ${left}ms linear`;bar.style.width='0%';}));
+    }else bar.classList.add('sweep');
+  }else if(o.text){
+    el.classList.add('done');
+    el.innerHTML=`<div class="ss-row"><span class="tick">✓</span><span>${esc(o.text)}</span></div>`;
+  }
+  return el;
+}
+// 2×2 hand: cards 1–2 sit in the back row (nearest the owner), 3–4 in the
+// front row facing the table. Opponents are at the top, so their back row is
+// the top row (natural order); your hand is at the bottom, so it's flipped.
+function placeSlot(wrap,idx,bottomSeat){if(bottomSeat)wrap.style.order=idx<2?1:0;}
+// Your turn has started: pulse your hand, buzz phones, soft chime.
+function yourTurnCue(){
+  let hz=document.querySelector('.hz');
+  if(hz){hz.classList.remove('your-turn');void hz.offsetWidth;hz.classList.add('your-turn');}
+  try{if(Settings.get('sound')&&navigator.vibrate)navigator.vibrate(35);}catch(e){}
+  sfx('turn');
+}
+
 // ── flash effects ──
 function flashPeekBlur(cardElId, card, label, rerenderFn){
   let cardEl=document.getElementById(cardElId);
@@ -103,6 +136,7 @@ function sfx(type){
     else if(type==='cabo'){for(let i=0;i<3;i++){let oo=ac.createOscillator(),gg=ac.createGain();oo.connect(gg);gg.connect(ac.destination);let tt=t+i*.1;oo.frequency.setValueAtTime(523+i*130,tt);gg.gain.setValueAtTime(.1,tt);gg.gain.linearRampToValueAtTime(0,tt+.15);oo.start(tt);oo.stop(tt+.16);}}
     else if(type==='match'){o.type='triangle';o.frequency.setValueAtTime(660,t);o.frequency.linearRampToValueAtTime(880,t+.12);g.gain.setValueAtTime(.09,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
     else if(type==='reveal'){o.type='sine';o.frequency.setValueAtTime(440,t);o.frequency.linearRampToValueAtTime(660,t+.2);g.gain.setValueAtTime(.08,t);g.gain.linearRampToValueAtTime(0,t+.4);o.start(t);o.stop(t+.41);}
+    else if(type==='turn'){o.type='sine';o.frequency.setValueAtTime(660,t);o.frequency.setValueAtTime(880,t+.09);g.gain.setValueAtTime(.06,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
     else if(type==='special'){o.type='sawtooth';o.frequency.setValueAtTime(500,t);o.frequency.linearRampToValueAtTime(300,t+.15);g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(0,t+.2);o.start(t);o.stop(t+.21);}
   }catch(e){}
 }

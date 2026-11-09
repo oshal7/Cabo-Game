@@ -23,7 +23,8 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 
 /* ── SETUP / MENU ── */
 #setup,#mp-lobby,#mp-room{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:60;padding:1.5rem;overflow-y:auto}
-#mp-lobby,#mp-room{display:none}
+#setup:not(.on),#mp-lobby,#mp-room:not(.on),#game:not(.on){display:none}
+#game.on{display:flex}
 .logo{font-family:'Playfair Display',serif;font-size:3.8rem;font-weight:900;color:var(--gold);letter-spacing:.14em;line-height:1;text-shadow:0 2px 28px rgba(212,168,67,.45)}
 .logo-sub{font-size:.6rem;letter-spacing:.5em;color:#7a6e5a;margin:.3rem 0 1.8rem}
 .sbox{background:rgba(4,18,8,.88);border:1px solid rgba(212,168,67,.2);border-radius:14px;padding:1.8rem;width:100%;max-width:360px;backdrop-filter:blur(10px)}
@@ -85,7 +86,27 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 .opps{display:flex;gap:.7rem;justify-content:center;flex-shrink:0;flex-wrap:wrap;position:relative;z-index:1}
 .opps{--cw:calc(var(--cwb)*.82)}
 .opz{display:flex;flex-direction:column;align-items:center;gap:.3rem;padding:.35rem .5rem;border-radius:12px;border:1px solid transparent;transition:border-color .3s,background .3s,box-shadow .3s}
-.opz.active,.hz.active{border-color:rgba(74,222,128,.35);background:rgba(74,222,128,.05);box-shadow:0 0 22px rgba(74,222,128,.12)}
+.opz.active,.hz.active{border-color:rgba(74,222,128,.55);background:rgba(74,222,128,.07);box-shadow:0 0 0 1px rgba(74,222,128,.15),0 0 26px rgba(74,222,128,.22);animation:seat-breathe 1.6s ease-in-out infinite alternate}
+@keyframes seat-breathe{from{box-shadow:0 0 0 1px rgba(74,222,128,.12),0 0 14px rgba(74,222,128,.12)}to{box-shadow:0 0 0 1px rgba(74,222,128,.3),0 0 30px rgba(74,222,128,.3)}}
+/* status line under a player's name: thinking spinner + progress, or their last move */
+.seat-status{min-height:1.55rem;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;max-width:calc(var(--cw)*2.4 + 12px)}
+.ss-row{display:flex;align-items:center;gap:5px;font-size:.62rem;line-height:1.2;text-align:center}
+.seat-status.busy .ss-row{color:#86efac;font-weight:500}
+.seat-status.done .ss-row{color:#c9bfa9}
+.seat-status .tick{color:#4ade80;font-size:.6rem}
+.spin{width:10px;height:10px;border-radius:50%;border:2px solid rgba(134,239,172,.25);border-top-color:#4ade80;animation:spin .7s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.ss-bar{width:calc(var(--cw)*1.8);height:3px;border-radius:2px;background:rgba(74,222,128,.15);overflow:hidden}
+.ss-bar i{display:block;height:100%;width:100%;background:#4ade80;border-radius:2px}
+.ss-bar i.sweep{width:40%;animation:sweep 1.1s ease-in-out infinite}
+@keyframes sweep{from{transform:translateX(-100%)}to{transform:translateX(250%)}}
+/* opponent holding a drawn card in the middle of the table */
+.drawn-zone.holding .dz-lbl{color:#86efac;opacity:1}
+.drawn-zone.holding .card{box-shadow:0 0 0 2px rgba(74,222,128,.5),0 0 20px rgba(74,222,128,.35);animation:hold-bob 1.2s ease-in-out infinite alternate}
+@keyframes hold-bob{from{transform:translateY(0)}to{transform:translateY(-5px)}}
+/* your turn just started */
+.hz.your-turn{animation:your-turn 1.1s ease}
+@keyframes your-turn{0%{transform:scale(1)}25%{transform:scale(1.04);box-shadow:0 0 0 2px rgba(240,192,96,.7),0 0 36px rgba(240,192,96,.55)}100%{transform:scale(1)}}
 .ltag{font-size:.56rem;padding:1px 5px;background:rgba(251,146,60,.18);border:1px solid rgba(251,146,60,.45);border-radius:9px;color:#fdba74;animation:pulse-tag 1.2s ease infinite alternate}
 @keyframes pulse-tag{from{opacity:.65}to{opacity:1}}
 .pnm{font-size:.6rem;letter-spacing:.14em;color:#9a8e7a;display:flex;align-items:center;gap:4px;white-space:nowrap}
@@ -128,7 +149,7 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 .glog{font-size:.63rem;color:#7a6e5a;text-align:center;min-height:.9em;font-style:italic;flex-shrink:0;z-index:1}
 
 /* human zone */
-.hz{display:flex;flex-direction:column;align-items:center;gap:.3rem;flex-shrink:0;z-index:1;padding:.35rem .6rem;border-radius:12px;border:1px solid transparent;align-self:center;transition:border-color .3s,background .3s,box-shadow .3s}
+.hz{display:flex;flex-direction:column;align-items:center;gap:.25rem;flex-shrink:0;z-index:1;padding:.35rem .6rem;border-radius:12px;border:1px solid transparent;align-self:center;transition:border-color .3s,background .3s,box-shadow .3s}
 .ylbl{font-size:.62rem;letter-spacing:.18em;color:var(--gold);display:flex;align-items:center;gap:5px}
 
 /* scoreboard */
@@ -140,9 +161,10 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 .sc-target{margin-top:4px;padding-top:4px;border-top:1px solid rgba(255,255,255,.08);color:#5a5142;font-size:.58rem}
 
 /* cards row */
-.crow{display:flex;gap:6px;align-items:flex-end;position:relative}
+/* hands are a 2×2 grid: back row (cards 1–2) nearest the owner, front row (3–4) toward the table */
+.crow{display:grid;grid-template-columns:repeat(2,var(--cw));gap:5px 6px;justify-content:center;position:relative}
 .cwrap{display:flex;flex-direction:column;align-items:center;gap:2px;position:relative}
-.cidx{font-size:.54rem;color:rgba(255,255,255,.28)}
+.cidx{font-size:.54rem;line-height:1;color:rgba(255,255,255,.28)}
 
 /* ── CARD ── */
 .card{width:var(--cw);height:var(--ch);border-radius:var(--cr);position:relative;transition:transform .18s,box-shadow .18s,border-color .18s;flex-shrink:0;border:1.5px solid transparent;user-select:none}
@@ -329,21 +351,39 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 /* phones (portrait): size cards from the screen width, not the height */
 @media (max-width:520px){
   html{font-size:15px}
-  :root{--cwb:clamp(52px,min(20.5vw,12vh),112px)}
-  #game{padding:.5rem .6rem .8rem}
-  .opps{--cw:calc(var(--cwb)*.74);gap:.3rem}
-  /* 2+ opponents: shrink so two hands still sit side by side */
-  .opps:has(.opz:nth-child(2)){--cw:calc(var(--cwb)*.49)}
-  /* 3–4 players: two rows of opponents, so leave more height for them */
-  #game:has(.opz:nth-child(2)){--cwb:clamp(46px,min(19vw,9.8vh),104px)}
-  #game:has(.opz:nth-child(3)){--cwb:clamp(44px,min(18vw,9vh),100px)}
-  .opps .crow{gap:4px}
-  .opz{padding:.3rem .35rem}
-  .crow{gap:6px}
-  .center{gap:1.1rem}
+  :root{--cwb:clamp(48px,min(20vw,10.6vh),104px)}
+  #game{padding:.45rem .55rem .6rem;gap:.25rem}
+  .opps{--cw:calc(var(--cwb)*.74);gap:.25rem}
+  /* 3 opponents: all six columns still fit on one row */
+  .opps:has(.opz:nth-child(3)){--cw:calc(var(--cwb)*.66)}
+  #game:has(.opz:nth-child(2)){--cwb:clamp(46px,min(19vw,9.6vh),100px)}
+  #game:has(.opz:nth-child(3)){--cwb:clamp(44px,min(18.5vw,9.4vh),100px)}
+  .opps .crow{gap:3px 4px}
+  .opz{padding:.25rem .3rem}
+  .hz{padding:.25rem .5rem}
+  .crow{gap:4px 6px}
+  .center{gap:1.1rem;padding:0}
+  .dz-acts{min-height:0}
+  .abar{padding:.4rem .6rem}
   .logo{font-size:2.8rem}
   .bnr{white-space:normal;text-align:center}
   .peek-label .pk-name{font-size:.5rem}
+}
+@media (max-width:520px) and (max-height:700px){
+  #game:has(.opz:nth-child(3)){--cwb:clamp(42px,min(18vw,9vh),96px)}
+}
+/* wide screens: your hand sits beside the piles instead of below them */
+@media (min-width:700px) and (min-aspect-ratio:5/4){
+  :root{--cwb:clamp(50px,min(9vw,12.5vh),110px)}
+  .opps{--cw:calc(var(--cwb)*.78)}
+  #game.on{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:auto auto 1fr auto auto;
+    grid-template-areas:"top top" "opps opps" "center hand" "log hand" "bar hand";column-gap:2rem;row-gap:.4rem;align-items:center}
+  .topbar{grid-area:top}
+  .opps{grid-area:opps;gap:1.4rem}
+  .center{grid-area:center;justify-self:end}
+  .glog{grid-area:log;justify-self:end;max-width:100%}
+  .abar{grid-area:bar;justify-self:end;width:min(100%,520px)}
+  .hz{grid-area:hand;justify-self:start;align-self:center}
 }
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}

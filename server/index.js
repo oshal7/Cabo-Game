@@ -51,6 +51,7 @@ function scheduleTurnTimer(room) {
   const turnAtSchedule = game.turn;
   const turnsAtSchedule = game.turnsTaken;
   game.turnDeadline = Date.now() + ms;
+  game.turnMs = ms;
   room.turnTimer = setTimeout(() => {
     if (room.game !== game || game.turn !== turnAtSchedule || game.turnsTaken !== turnsAtSchedule) return;
     autoPlay(room);

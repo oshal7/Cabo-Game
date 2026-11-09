@@ -53,6 +53,8 @@ function createGame(names, round, totals) {
     turn: 0,
     turnsTaken: 0,
     finalPending: [],
+    lastActions: {},       // seat -> short public description of their last move
+    drawnFromDiscard: false,
     phase: 'play',
     drawnCard: null,
     swapSeen: false,
@@ -95,6 +97,7 @@ function checkMatch(game, card) {
 }
 
 function endTurn(game) {
+  game.drawnFromDiscard = false;
   game.drawnCard = null;
   game.swapPick1 = null;
   game.swapSeen = false;
@@ -121,6 +124,7 @@ function endTurn(game) {
   if (cabo && game.finalPending.length === 0) { revealAll(game); return; }
   if (!ensureDeck(game)) { revealAll(game); return; }
   game.turn = next;
+  delete game.lastActions[next]; // their bubble is replaced by "thinking" until they act
 }
 
 function revealAll(game) {
@@ -149,6 +153,7 @@ function applyAction(game, seat, type, payload = {}) {
   const banners = [];
   const flashes = [];
   const moves = [];
+  const act = (text) => { game.lastActions[seat] = text; };
   const fail = (error) => ({ ok: false, error, banners, flashes, moves });
   const ok = (extra) => ({ ok: true, banners, flashes, moves, ...extra });
 
@@ -162,6 +167,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (!ensureDeck(game)) return fail('Deck is empty.');
       game.drawnCard = game.deck.pop();
       game.phase = 'drawn';
+      act('Drew from the deck');
       moves.push({ from: 'deck', to: 'drawn' });
       return ok();
     }
@@ -169,8 +175,10 @@ function applyAction(game, seat, type, payload = {}) {
       if (game.phase !== 'play') return fail('Wrong phase.');
       if (!game.discard.length) return fail('Discard pile is empty.');
       game.drawnCard = game.discard.pop();
+      game.drawnFromDiscard = true;
       game.phase = 'drawn';
       const c = game.drawnCard;
+      act(`Took ${c.rank}${c.suit} from discard`);
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} took the ${c.rank}${c.suit} from the discard pile.`, level: 'info' });
       moves.push({ from: 'discard', to: 'drawn' });
       return ok();
@@ -181,6 +189,7 @@ function applyAction(game, seat, type, payload = {}) {
       game.discard.push(card);
       game.drawnCard = null;
       moves.push({ from: 'drawn', to: 'discard' });
+      act(`Discarded ${card.rank}${card.suit}`);
       if (checkMatch(game, card)) {
         banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
       } else {
@@ -199,6 +208,7 @@ function applyAction(game, seat, type, payload = {}) {
       game.drawnCard = null;
       banners.push({ scope: 'all', text: `${me.name} swapped card ${idx + 1}.`, level: 'info' });
       moves.push({ from: 'drawn', to: { seat, idx } }, { from: { seat, idx }, to: 'discard' });
+      act(`Swapped card ${idx + 1}, discarded ${old.rank}${old.suit}`);
       if (checkMatch(game, old)) {
         banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
       } else {
@@ -222,6 +232,8 @@ function applyAction(game, seat, type, payload = {}) {
         const next = (game.turn + 1) % game.players.length;
         game.players[next].skip = true;
         banners.push({ scope: 'all', text: `${me.name} played J — ${game.players[next].name}'s turn skipped!`, level: 'warn' });
+        act(`Played J — skipped ${game.players[next].name}`);
+        moves.push({ from: 'drawn', to: 'discard' });
         game.discard.push(game.drawnCard);
         game.drawnCard = null;
         game.phase = 'play';
@@ -240,6 +252,7 @@ function applyAction(game, seat, type, payload = {}) {
       const c = me.cards[idx];
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked their own card.`, level: 'info' });
       flashes.push({ kind: 'peek', seat, idx, by: seat, label: `${me.name} peeked!` });
+      act(`Peeked own card ${idx + 1}`);
       game.discard.push(game.drawnCard);
       game.drawnCard = null;
       game.phase = 'play';
@@ -263,6 +276,7 @@ function applyAction(game, seat, type, payload = {}) {
       const c = opp.cards[idx];
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked ${opp.name}'s card.`, level: 'info' });
       flashes.push({ kind: 'peek', seat: oppSeat, idx, by: seat, label: `${me.name} peeked!` });
+      act(`Peeked ${opp.name}'s card ${idx + 1}`);
       game.discard.push(game.drawnCard);
       game.drawnCard = null;
       game.phase = 'play';
@@ -294,6 +308,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (game.swapSeen) banners.push({ scope: seat, text: `Swapped! They had ${c2.rank}${c2.suit}`, level: 'info' });
       else banners.push({ scope: seat, text: 'Blind swap done!', level: 'info' });
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} swapped with ${opp.name}.`, level: 'warn' });
+      act(`${game.swapSeen ? 'Seen' : 'Blind'}-swapped card ${p1.idx + 1} with ${opp.name}'s card ${idx + 1}`);
       flashes.push({ kind: 'swap', seat: p1.owner, idx: p1.idx }, { kind: 'swap', seat: oppSeat, idx });
       moves.push({ from: { seat: p1.owner, idx: p1.idx }, to: { seat: oppSeat, idx } }, { from: { seat: oppSeat, idx }, to: { seat: p1.owner, idx: p1.idx } });
       game.players[p1.owner].cards[p1.idx] = { ...c2, known: game.swapSeen };
@@ -323,6 +338,7 @@ function applyAction(game, seat, type, payload = {}) {
       game.discard.push(disc);
       me.matchUsed = true;
       banners.push({ scope: 'all', text: `${me.name} used the match bonus.`, level: 'good' });
+      act(`Match bonus: threw away card ${idx + 1}`);
       game.phase = 'play';
       endTurn(game);
       return ok();
@@ -339,6 +355,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (!canCallCabo(game)) return fail('Cabo can be called once everyone has had a turn.');
       game.caboBy = seat;
       game.finalPending = game.players.map((_, i) => i).filter((i) => i !== seat);
+      act('Called CABO!');
       banners.push({ scope: 'all', text: `${me.name} calls CABO! Everyone else gets one final turn.`, level: 'cabo' });
       endTurn(game);
       return ok();
@@ -382,6 +399,10 @@ function buildView(game, viewer) {
     gameOver: game.gameOver,
     targetScore: TARGET_SCORE,
     turnDeadline: game.turnDeadline || null,
+    turnMs: game.turnMs || null,
+    turnNo: game.turnsTaken,
+    lastActions: game.lastActions,
+    drawnPublic: game.drawnFromDiscard ? game.drawnCard : null,
     swapPick1: viewer === game.turn ? game.swapPick1 : null,
     players,
     totals: game.totals,

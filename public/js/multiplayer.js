@@ -14,6 +14,7 @@ const MP = (function () {
   let memorizeUntil = 0;
   let pendingMoves = [];
   let countdownT = null;
+  let lastCueKey = null;
 
   function ensureSocket() {
     if (socket) return;
@@ -185,6 +186,8 @@ const MP = (function () {
       setTimeout(() => showRevealOverlay(view), delay + 400);
     }
     startCountdown();
+    const cueKey = `${gid}:${view.turnNo}`;
+    if (view.turn === view.you && view.phase === 'play' && view.turnNo > 0 && cueKey !== lastCueKey) { lastCueKey = cueKey; yourTurnCue(); }
   }
 
   function startCountdown() {
@@ -224,6 +227,12 @@ const MP = (function () {
       sp.textContent = view.phase === 'reveal' ? p.cards.reduce((s, c) => s + (c.known ? cv(c.rank) : 0), 0) : '?';
       nm.appendChild(sp);
       z.appendChild(nm);
+      const onTurn = view.turn === i && view.phase !== 'reveal';
+      z.appendChild(seatStatus({
+        active: onTurn, label: view.someoneHasDrawn ? 'Deciding…' : 'Thinking…',
+        deadline: view.turnDeadline, totalMs: view.turnMs,
+        text: view.lastActions && view.lastActions[i],
+      }));
       const cr = document.createElement('div'); cr.className = 'crow';
       p.cards.forEach((c, idx) => {
         const faceUp = c.known && view.phase === 'reveal';
@@ -274,6 +283,7 @@ const MP = (function () {
       if (memo && !aid && c.known && view.phase !== 'reveal') card.classList.add('memorize');
       card.id = `card-${view.you}-${idx}`;
       if (clickable) card.onclick = () => youClick(idx, view);
+      placeSlot(w, idx, true);
       w.appendChild(card);
       const li = document.createElement('div'); li.className = 'cidx'; li.textContent = idx + 1;
       w.appendChild(li);
@@ -303,7 +313,17 @@ const MP = (function () {
     const dzCard = document.getElementById('dz-card');
     const dzActs = document.getElementById('dz-acts');
     dzCard.innerHTML = ''; dzActs.innerHTML = '';
-    if (view.drawnCard && myTurn) {
+    const dzLbl = document.querySelector('#dz .dz-lbl');
+    dzLbl.textContent = 'DRAWN';
+    dz.classList.remove('holding');
+    if (!myTurn && view.someoneHasDrawn && view.phase !== 'reveal') {
+      // another player is holding a card (face-up only if they took the discard)
+      dz.classList.add('active', 'holding');
+      dzLbl.textContent = `${view.players[view.turn].name.toUpperCase()} HOLDS`;
+      const card = mkCard(view.drawnPublic || null, !!view.drawnPublic);
+      card.id = 'dz-top';
+      dzCard.appendChild(card);
+    } else if (view.drawnCard && myTurn) {
       dz.classList.add('active');
       const card = mkCard(view.drawnCard, true);
       card.id = 'dz-top';
@@ -317,7 +337,7 @@ const MP = (function () {
       }
     } else {
       dz.classList.remove('active');
-      dzCard.innerHTML = `<div class="dz-empty" id="dz-top">${view.someoneHasDrawn ? '…' : '+'}</div>`;
+      dzCard.innerHTML = '<div class="dz-empty" id="dz-top">+</div>';
     }
 
     const dse = document.getElementById('disc-el'); dse.innerHTML = '';

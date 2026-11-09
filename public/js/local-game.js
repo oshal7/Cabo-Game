@@ -26,6 +26,7 @@ const Local = (function () {
   function isMemorizing() { return G.memorizeSeat === viewer() && Date.now() < (G.memorizeUntil || 0); }
   function queueFly(target, from, opts) { if (from) flyQ.push({ target, from, opts }); }
   function slotId(seat, idx) { return `card-${seat}-${idx}`; }
+  function setAct(seat, text) { G.acts[seat] = text; }
 
   function startGame() {
     C.name = (document.getElementById('pname').value.trim() || 'You').slice(0, 12);
@@ -54,6 +55,7 @@ const Local = (function () {
       deck, discard, players, turn: 0, viewer: 0, phase: 'play', drawnCard: null, swapSeen: false, swapPick1: null,
       peekOppWho: null, caboBy: -1, finalPending: [], turnsTaken: 0, round: G.round || 1,
       log: 'New hand — memorize your first two cards!', handoff: false, memorizeUntil: 0,
+      acts: {}, drawnFromDiscard: false, cueTurn: -1,
     };
     closeOv();
     if (C.mode === 'pass') handoff(0, () => {});
@@ -103,6 +105,7 @@ const Local = (function () {
     renderScoreboard();
     let q = flyQ; flyQ = [];
     q.forEach((f) => flyFrom(f.target, f.from, f.opts));
+    if (myTurn() && G.phase === 'play' && G.cueTurn !== G.turnsTaken && !(C.mode === 'pass')) { G.cueTurn = G.turnsTaken; if (G.turnsTaken > 0) yourTurnCue(); }
   }
   function scoreOf(i) { return G.players[i].cards.reduce((s, c) => s + cv(c.rank), 0); }
 
@@ -129,6 +132,8 @@ const Local = (function () {
       nameTags(nm, i);
       let sp = document.createElement('span'); sp.className = 'spip'; sp.textContent = G.phase === 'reveal' ? scoreOf(i) : '?'; nm.appendChild(sp);
       z.appendChild(nm);
+      let onTurn = G.turn === i && G.phase !== 'reveal' && !G.handoff;
+      z.appendChild(seatStatus({ active: onTurn && !p.isHuman, label: G.drawnCard ? 'Deciding…' : 'Thinking…', text: G.acts[i] }));
       let cr = document.createElement('div'); cr.className = 'crow';
       p.cards.forEach((c, idx) => {
         let faceUp = G.phase === 'reveal';
@@ -183,6 +188,7 @@ const Local = (function () {
       if (memo && c.known && !aid && G.phase !== 'reveal') card.classList.add('memorize');
       card.id = slotId(v, idx);
       if (clickable) card.onclick = () => youClick(idx);
+      placeSlot(w, idx, true);
       w.appendChild(card);
       let li = document.createElement('div'); li.className = 'cidx'; li.textContent = idx + 1;
       w.appendChild(li);
@@ -212,7 +218,17 @@ const Local = (function () {
     let dzCard = document.getElementById('dz-card');
     let dzActs = document.getElementById('dz-acts');
     dzCard.innerHTML = ''; dzActs.innerHTML = '';
-    if (G.drawnCard && mine) {
+    let dzLbl = document.querySelector('#dz .dz-lbl');
+    dzLbl.textContent = 'DRAWN';
+    dz.classList.remove('holding');
+    if (G.drawnCard && !mine && G.phase !== 'reveal') {
+      // an opponent is holding a card: show it (face-down unless it came from the discard pile)
+      dz.classList.add('active', 'holding');
+      dzLbl.textContent = `${G.players[G.turn].name.toUpperCase()} HOLDS`;
+      let card = mkCard(G.drawnCard, G.drawnFromDiscard);
+      card.id = 'dz-top';
+      dzCard.appendChild(card);
+    } else if (G.drawnCard && mine) {
       dz.classList.add('active');
       let card = mkCard(G.drawnCard, true);
       card.id = 'dz-top';
@@ -226,7 +242,7 @@ const Local = (function () {
       }
     } else {
       dz.classList.remove('active');
-      dzCard.innerHTML = `<div class="dz-empty" id="dz-top">${G.drawnCard ? '…' : '+'}</div>`;
+      dzCard.innerHTML = `<div class="dz-empty" id="dz-top">+</div>`;
     }
 
     let dse = document.getElementById('disc-el'); dse.innerHTML = '';
@@ -419,6 +435,7 @@ const Local = (function () {
   function endTurn() {
     if (G.phase === 'reveal') return;
     G.drawnCard = null; G.swapPick1 = null; G.swapSeen = false; G.peekOppWho = null; G.phase = 'play';
+    G.drawnFromDiscard = false;
     G.turnsTaken++;
     let n = G.players.length, cabo = G.caboBy !== -1;
     if (cabo) G.finalPending = G.finalPending.filter((s) => s !== G.turn);
@@ -437,13 +454,14 @@ const Local = (function () {
     if (cabo && G.finalPending.length === 0) { revealAll(); return; }
     if (!ensureDeck()) { bnr('No cards left — revealing!', 'warn'); revealAll(); return; }
     G.turn = next;
+    delete G.acts[next];
     let p = G.players[next];
     if (C.mode === 'pass') {
       render();
       setTimeout(() => handoff(next, () => {}), 450);
     } else {
       render();
-      if (!p.isHuman) setTimeout(aiTurn, 900);
+      if (!p.isHuman) setTimeout(aiTurn, 1000);
     }
   }
 
@@ -473,35 +491,35 @@ const Local = (function () {
     let ai = G.players[G.turn], ai_i = G.turn;
     if (aiShouldCabo(ai_i)) {
       G.caboBy = ai_i; G.finalPending = G.players.map((_, i) => i).filter((i) => i !== ai_i);
+      setAct(ai_i, 'Called CABO!');
       bnr(`${ai.name} calls CABO!`, 'cabo'); sfx('cabo'); G.log = `${ai.name} called Cabo!`;
       endTurn(); return;
     }
     let { worst, worstV } = aiWorst(ai);
     let top = G.discard[G.discard.length - 1];
     // grab a low discard if it clearly improves a known card
-    if (top && C.diff !== 'easy' && worst !== -1 && cv(top.rank) <= 3 && worstV > cv(top.rank) + 2) {
-      queueFly(slotId(ai_i, worst), rectOf('disc-top'));
-      G.discard.pop();
-      let old = ai.cards[worst];
-      ai.cards[worst] = { ...top, aiKnown: true, known: false };
-      setTimeout(() => {
-        queueFly('disc-top', rectOf(slotId(ai_i, worst)));
-        G.discard.push(old); sfx('swap');
-        G.log = `${ai.name} took the ${top.rank}${top.suit} and swapped card ${worst + 1}.`;
-        endTurn();
-      }, 500);
-      render();
-      return;
+    let takeDiscard = top && C.diff !== 'easy' && worst !== -1 && cv(top.rank) <= 3 && worstV > cv(top.rank) + 2;
+    if (takeDiscard) {
+      queueFly('dz-top', rectOf('disc-top'));
+      G.drawnCard = G.discard.pop(); G.drawnFromDiscard = true;
+      setAct(ai_i, `Took ${top.rank}${top.suit} from discard`);
+      G.log = `${ai.name} took the ${top.rank}${top.suit} from the discard pile.`;
+    } else {
+      if (!ensureDeck()) { endTurn(); return; }
+      queueFly('dz-top', rectOf('deck-top'), { flip: true });
+      G.drawnCard = G.deck.pop(); G.drawnFromDiscard = false;
+      setAct(ai_i, 'Drew from the deck');
+      G.log = `${ai.name} drew from the deck.`;
     }
-    if (!ensureDeck()) { endTurn(); return; }
-    G.drawnCard = G.deck.pop();
     let drawn = G.drawnCard;
     sfx('draw');
     render();
+    // hold the card for a moment so you can see the AI deciding
     setTimeout(() => {
-      if (isSpec(drawn.rank) && C.diff !== 'easy' && !(cv(drawn.rank) <= 0)) aiSpec(drawn, ai_i);
+      if (G.phase === 'reveal' || G.drawnCard !== drawn) return;
+      if (!G.drawnFromDiscard && isSpec(drawn.rank) && C.diff !== 'easy' && cv(drawn.rank) > 0) aiSpec(drawn, ai_i);
       else aiPlace(ai, ai_i, drawn);
-    }, 550);
+    }, 1300);
   }
 
   function aiPlace(ai, ai_i, drawn) {
@@ -512,32 +530,38 @@ const Local = (function () {
     else if (unknown !== -1 && cv(drawn.rank) <= 2) tgt = unknown; // a very low card beats an unknown
     let discarded;
     if (tgt !== -1) {
-      queueFly(slotId(ai_i, tgt), rectOf('deck-top'), { flip: true });
+      queueFly(slotId(ai_i, tgt), rectOf('dz-top'));
       queueFly('disc-top', rectOf(slotId(ai_i, tgt)));
       discarded = ai.cards[tgt];
       G.discard.push(discarded);
       ai.cards[tgt] = { ...drawn, aiKnown: true, known: false };
+      setAct(ai_i, `Swapped card ${tgt + 1}, discarded ${discarded.rank}${discarded.suit}`);
       G.log = `${ai.name} swapped card ${tgt + 1}.`; sfx('swap');
     } else {
-      queueFly('disc-top', rectOf('deck-top'), { flip: true });
+      queueFly('disc-top', rectOf('dz-top'));
       discarded = drawn;
-      G.discard.push(drawn); G.log = `${ai.name} discarded ${drawn.rank}${drawn.suit}.`; sfx('discard');
+      G.discard.push(drawn);
+      setAct(ai_i, `Discarded ${drawn.rank}${drawn.suit}`);
+      G.log = `${ai.name} discarded ${drawn.rank}${drawn.suit}.`; sfx('discard');
     }
     G.drawnCard = null;
     if (checkMatch(discarded)) {
       let w = aiWorst(ai);
       if (w.worst !== -1 && w.worstV > 3) {
         render();
+        if (tgt !== -1) flashSwapGlow(slotId(ai_i, tgt));
         setTimeout(() => {
           queueFly('disc-top', rectOf(slotId(ai_i, w.worst)));
           G.discard.push(ai.cards.splice(w.worst, 1)[0]); ai.matchUsed = true;
+          setAct(ai_i, `Match bonus: threw away card ${w.worst + 1}`);
           bnr(`${ai.name} used the match bonus!`, 'good');
           endTurn();
-        }, 600);
+        }, 900);
         return;
       }
     }
     endTurn();
+    if (tgt !== -1) flashSwapGlow(slotId(ai_i, tgt));
   }
 
   function aiShouldCabo(i) {
@@ -553,11 +577,12 @@ const Local = (function () {
 
   function aiSpec(card, ai_i) {
     let ai = G.players[ai_i], r = card.rank;
-    let finish = (delay) => setTimeout(() => { discardDrawnCard(rectOf('deck-top')); endTurn(); }, delay);
+    let finish = (delay) => setTimeout(() => { discardDrawnCard(); endTurn(); }, delay);
     if (r === '7' || r === '8') {
       let unk = ai.cards.findIndex((c) => !c.aiKnown);
       if (unk === -1) { aiPlace(ai, ai_i, card); return; }
       ai.cards[unk].aiKnown = true;
+      setAct(ai_i, `Used ${r}: peeked own card ${unk + 1}`);
       G.log = `${ai.name} peeked their own card ${unk + 1}.`;
       bnr(`${ai.name} peeked their own card ${unk + 1}!`, 'info');
       setTimeout(() => flashCard(ai_i, unk, 'peek', `${ai.name} peeked!`), 200);
@@ -571,6 +596,7 @@ const Local = (function () {
       let c = G.players[s].cards[idx];
       c.peekedBy = [...(c.peekedBy || []), ai_i];
       let who = s === viewer() ? 'your' : `${G.players[s].name}'s`;
+      setAct(ai_i, `Used ${r}: peeked ${who} card ${idx + 1}`);
       G.log = `${ai.name} peeked ${who} card ${idx + 1}.`;
       bnr(`${ai.name} peeked ${who} card ${idx + 1}!`, 'warn');
       setTimeout(() => flashCard(s, idx, 'peek', `${ai.name} peeked!`), 200);
@@ -581,11 +607,12 @@ const Local = (function () {
       G.players[next].skip = true;
       bnr(`${ai.name} plays J — ${G.players[next].name} skipped!`, 'warn');
       G.log = `${ai.name} skipped ${G.players[next].name}.`;
-      sfx('special'); discardDrawnCard(rectOf('deck-top')); endTurn(); return;
+      setAct(ai_i, `Played J — skipped ${G.players[next].name}`);
+      sfx('special'); discardDrawnCard(); endTurn(); return;
     }
     if (r === 'Q' || r === 'K') {
       let { worst, worstV } = aiWorst(ai);
-      if (worst === -1) { finish(200); return; }
+      if (worst === -1) { setAct(ai_i, `Discarded ${card.rank}${card.suit}`); finish(200); return; }
       let target = null;
       let known = aiKnownOpp(ai_i).sort((a, b) => a.v - b.v)[0];
       if (known && worstV > known.v + 2) target = known;
@@ -597,22 +624,24 @@ const Local = (function () {
       } else if (worstV >= 10 && C.diff === 'hard') {
         let s = randomOpp(ai_i); target = { s, idx: ~~(Math.random() * G.players[s].cards.length) };
       }
-      if (!target) { finish(200); return; }
+      if (!target) { setAct(ai_i, `Discarded ${card.rank}${card.suit}`); finish(200); return; }
       let seen = r === 'K' || target.v !== undefined;
       let c1 = { ...ai.cards[worst] };
       let c2 = { ...G.players[target.s].cards[target.idx] };
       let who = target.s === viewer() ? 'your' : `${G.players[target.s].name}'s`;
       G.log = `${ai.name} ${r === 'K' ? 'seen' : 'blind'}-swapped card ${worst + 1} with ${who} card ${target.idx + 1}!`;
+      setAct(ai_i, `Used ${r}: swapped card ${worst + 1} with ${who} card ${target.idx + 1}`);
       bnr(G.log, 'warn');
       setTimeout(() => {
         animateSwap(ai_i, worst, target.s, target.idx, () => {
           ai.cards[worst] = { ...c2, aiKnown: seen, known: false, peekedBy: [] };
           G.players[target.s].cards[target.idx] = { ...c1, known: false, aiKnown: false, peekedBy: [ai_i] };
-          discardDrawnCard(rectOf('deck-top')); endTurn();
+          discardDrawnCard(); endTurn();
         });
       }, 200);
       return;
     }
+    setAct(ai_i, `Discarded ${card.rank}${card.suit}`);
     finish(200);
   }
 

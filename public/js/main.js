@@ -3,7 +3,8 @@
 const Screens = {
   all: ['setup', 'mp-room', 'game'],
   show(name) {
-    this.all.forEach((id) => { document.getElementById(id).style.display = id === name ? 'flex' : 'none'; });
+    // visibility is a class so CSS can pick the layout (flex, or grid on wide screens)
+    this.all.forEach((id) => document.getElementById(id).classList.toggle('on', id === name));
   },
 };
 
