@@ -6,6 +6,10 @@
   --cw:var(--cwb);--ch:calc(var(--cw)*1.41);--cr:calc(var(--cw)*.14);
 }
 html{font-size:clamp(14px,calc(.55vw + .9vh + 6px),21px)}
+/* --cw can be overridden per area (e.g. smaller opponent cards); recompute
+   the derived height/radius wherever a card-sized box is drawn */
+#game{--cw:var(--cwb)}
+.card,.deck-stack,.disc-stack,.ds1,.ds2,.dsh,.empty-pile,.dz-card,.dz-empty,.drawn-zone,.flying-card{--ch:calc(var(--cw)*1.41);--cr:calc(var(--cw)*.14)}
 html,body{height:100%;overflow:hidden;background:#050f08}
 body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 
@@ -322,13 +326,24 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 .bnr.cabo{background:#7f1d1d;border:1px solid #f87171;color:#fecaca;font-family:'Playfair Display',serif;font-size:.85rem;letter-spacing:.1em}
 @keyframes bslide{from{opacity:0;top:2px}to{opacity:1;top:10px}}
 
-/* small screens */
+/* phones (portrait): size cards from the screen width, not the height */
 @media (max-width:520px){
-  .opps{--cw:calc(var(--cwb)*.62);gap:.3rem}
-  .opps .crow{gap:3px}
-  .center{gap:1rem}
+  html{font-size:15px}
+  :root{--cwb:clamp(52px,min(20.5vw,12vh),112px)}
+  #game{padding:.5rem .6rem .8rem}
+  .opps{--cw:calc(var(--cwb)*.74);gap:.3rem}
+  /* 2+ opponents: shrink so two hands still sit side by side */
+  .opps:has(.opz:nth-child(2)){--cw:calc(var(--cwb)*.49)}
+  /* 3–4 players: two rows of opponents, so leave more height for them */
+  #game:has(.opz:nth-child(2)){--cwb:clamp(46px,min(19vw,9.8vh),104px)}
+  #game:has(.opz:nth-child(3)){--cwb:clamp(44px,min(18vw,9vh),100px)}
+  .opps .crow{gap:4px}
+  .opz{padding:.3rem .35rem}
+  .crow{gap:6px}
+  .center{gap:1.1rem}
   .logo{font-size:2.8rem}
   .bnr{white-space:normal;text-align:center}
+  .peek-label .pk-name{font-size:.5rem}
 }
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important}
