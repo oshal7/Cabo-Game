@@ -8,16 +8,26 @@ const MP = (function () {
   let session = { code: null, token: null, seat: null, name: '', maxPlayers: 3 };
   let lastRoomSummary = null;
   let lastView = null;
-  let revealShownForRound = -1;
+  let revealShownFor = null;
+  let revealOpen = false;
+  let currentGameId = null;
+  let memorizeUntil = 0;
+  let pendingMoves = [];
+  let countdownT = null;
 
   function ensureSocket() {
     if (socket) return;
     socket = window.CABO_SERVER_URL ? io(window.CABO_SERVER_URL) : io();
     socket.on('rooms_list', renderRoomsList);
-    socket.on('room_update', (room) => { lastRoomSummary = room; renderRoomScreen(room); });
+    socket.on('room_update', (room) => {
+      lastRoomSummary = room; renderRoomScreen(room);
+      // host may have changed while the result screen is open
+      if (revealOpen && lastView && lastView.phase === 'reveal') showRevealOverlay(lastView, true);
+    });
     socket.on('game_state', onGameState);
     socket.on('banner', (b) => bnr(b.text, b.level));
     socket.on('flashes', onFlashes);
+    socket.on('moves', onMoves);
     socket.on('connect', tryAutoRejoin);
     socket.on('disconnect', () => bnr('Connection lost — reconnecting…', 'warn'));
   }
@@ -76,7 +86,7 @@ const MP = (function () {
   function leaveRoom() {
     if (socket) socket.emit('leave_room');
     clearSession();
-    revealShownForRound = -1;
+    revealShownFor = null; revealOpen = false; currentGameId = null;
     Screens.show('setup');
   }
 
@@ -88,7 +98,7 @@ const MP = (function () {
     if (!open.length) { el.innerHTML = '<div class="mp-empty">No open rooms right now.</div>'; return; }
     open.forEach((r) => {
       const row = document.createElement('div'); row.className = 'mp-room-row';
-      row.innerHTML = `<span class="code">${r.code}</span><span class="cnt">${r.players.length}/${r.maxPlayers} players</span>`;
+      row.innerHTML = `<span class="code">${esc(r.code)}</span><span class="cnt">${r.players.length}/${r.maxPlayers} players</span>`;
       row.onclick = () => { document.getElementById('mp-code').value = r.code; };
       el.appendChild(row);
     });
@@ -106,7 +116,7 @@ const MP = (function () {
       if (p) {
         row.className = 'mp-seat';
         const dotStyle = p.connected ? '' : ' style="background:#5a5142;box-shadow:none"';
-        row.innerHTML = `<div class="dot"${dotStyle}></div><span>${p.name}${i === session.seat ? ' (you)' : ''}${p.connected ? '' : ' — offline'}</span>` + (p.isHost ? '<span class="host-tag">HOST</span>' : '');
+        row.innerHTML = `<div class="dot"${dotStyle}></div><span>${esc(p.name)}${i === session.seat ? ' (you)' : ''}${p.connected ? '' : ' — offline'}</span>` + (p.isHost ? '<span class="host-tag">HOST</span>' : '');
       } else {
         row.className = 'mp-seat empty';
         row.textContent = 'Waiting for player…';
@@ -139,20 +149,59 @@ const MP = (function () {
     });
   }
 
+  // Server describes card movements; capture where things are now, then
+  // slide the re-rendered cards in from there once the new state arrives.
+  function moveEl(spot, view) {
+    if (spot === 'deck') return 'deck-top';
+    if (spot === 'discard') return 'disc-top';
+    if (spot === 'drawn') return 'dz-top';
+    return `card-${spot.seat}-${spot.idx}`;
+  }
+  function onMoves(moves) {
+    (moves || []).forEach((m) => {
+      pendingMoves.push({ to: m.to, from: rectOf(moveEl(m.from)), flip: m.from === 'deck' });
+    });
+  }
+
   function onGameState(view) {
+    let gid = view.gameId || ('r' + view.round);
+    let newHand = gid !== currentGameId;
+    currentGameId = gid;
+    if (newHand) {
+      pendingMoves = [];
+      memorizeUntil = Date.now() + MEMORIZE_MS;
+      setTimeout(() => { if (lastView && currentGameId === gid) renderGame(lastView); }, MEMORIZE_MS + 30);
+      if (revealOpen) { closeOv(); revealOpen = false; }
+    }
     lastView = view;
     Screens.show('game');
     renderGame(view);
-    if (view.phase === 'reveal' && revealShownForRound !== view.round) {
-      revealShownForRound = view.round;
-      setTimeout(() => showRevealOverlay(view), 500);
+    if (newHand && view.phase !== 'reveal') dealAnimation();
+    let moves = pendingMoves; pendingMoves = [];
+    moves.forEach((m) => flyFrom(moveEl(m.to), m.from, { flip: m.flip }));
+    if (view.phase === 'reveal' && revealShownFor !== gid) {
+      revealShownFor = gid;
+      let delay = revealAnimation();
+      setTimeout(() => showRevealOverlay(view), delay + 400);
     }
+    startCountdown();
+  }
+
+  function startCountdown() {
+    clearInterval(countdownT);
+    countdownT = setInterval(() => {
+      let el = document.getElementById('turn-timer');
+      if (!el || !lastView || !lastView.turnDeadline) return;
+      let left = Math.max(0, Math.ceil((lastView.turnDeadline - Date.now()) / 1000));
+      el.textContent = left <= 30 ? ` · ${left}s` : '';
+    }, 500);
   }
 
   // ── render ──
   function renderGame(view) {
     document.getElementById('rbadge').textContent = `ROUND ${view.round}`;
-    document.getElementById('cabo-btn').disabled = view.caboBy !== -1 || view.turn !== view.you || view.phase !== 'play';
+    const cabOk = view.canCabo !== undefined ? view.canCabo : (view.caboBy === -1 && view.phase === 'play');
+    document.getElementById('cabo-btn').disabled = !(cabOk && view.turn === view.you);
     document.getElementById('glog').textContent = view.log || ' ';
     renderOpps(view);
     renderYou(view);
@@ -165,11 +214,12 @@ const MP = (function () {
     const row = document.getElementById('opps'); row.innerHTML = '';
     view.players.forEach((p, i) => {
       if (i === view.you) return;
-      const z = document.createElement('div'); z.className = 'opz';
+      const z = document.createElement('div'); z.className = 'opz' + (view.turn === i && view.phase !== 'reveal' ? ' active' : '');
       const nm = document.createElement('div'); nm.className = 'pnm';
       if (view.turn === i) { const d = document.createElement('div'); d.className = 'tdot'; nm.appendChild(d); }
       const ns = document.createElement('span'); ns.textContent = p.name; nm.appendChild(ns);
       if (view.caboBy === i) { const t = document.createElement('span'); t.className = 'ctag'; t.textContent = 'CABO'; nm.appendChild(t); }
+      if ((view.finalPending || []).includes(i)) { const t = document.createElement('span'); t.className = 'ltag'; t.textContent = 'LAST TURN'; nm.appendChild(t); }
       const sp = document.createElement('span'); sp.className = 'spip';
       sp.textContent = view.phase === 'reveal' ? p.cards.reduce((s, c) => s + (c.known ? cv(c.rank) : 0), 0) : '?';
       nm.appendChild(sp);
@@ -200,22 +250,28 @@ const MP = (function () {
     const p = view.players[view.you];
     const row = document.getElementById('ycards'); row.innerHTML = '';
     document.getElementById('ydot').style.display = view.turn === view.you ? 'block' : 'none';
-    document.getElementById('ylbl').textContent = (p.name + (view.caboBy === view.you ? ' · CABO' : '')).toUpperCase();
+    document.querySelector('.hz').classList.toggle('active', view.turn === view.you && view.phase !== 'reveal');
+    document.getElementById('ylbl').textContent = (p.name + (view.caboBy === view.you ? ' · CABO' : '') + ((view.finalPending || []).includes(view.you) ? ' · LAST TURN' : '')).toUpperCase();
+    const aid = Settings.get('memoryAid');
+    const memo = Date.now() < memorizeUntil;
     const known = p.cards.filter((c) => c.known);
     const ksum = known.reduce((s, c) => s + cv(c.rank), 0);
-    document.getElementById('ypip').textContent = known.length === p.cards.length ? ksum : ksum + '+' + (p.cards.length - known.length) + '?';
+    const pipEl = document.getElementById('ypip');
+    if (view.phase === 'reveal') pipEl.textContent = ksum;
+    else pipEl.textContent = aid ? (known.length === p.cards.length ? ksum : ksum + '+' + (p.cards.length - known.length) + '?') : '?';
     p.cards.forEach((c, idx) => {
-      const faceUp = c.known;
+      const faceUp = c.known && (aid || memo || view.phase === 'reveal');
       let hl = '', sel = false, clickable = false;
       if (view.turn === view.you) {
-        if (view.phase === 'drawn') { clickable = true; hl = 'discard'; }
+        if (view.phase === 'drawn') { clickable = true; hl = 'swap'; }
         if (view.phase === 'spec-peek-own') { clickable = true; hl = 'peek'; }
         if (view.phase === 'spec-swap1') { clickable = true; hl = 'swap'; }
         if (view.phase === 'spec-swap2' && view.swapPick1 && view.swapPick1.idx === idx) sel = true;
         if (view.phase === 'match-pick') { clickable = true; hl = 'discard'; }
       }
       const w = document.createElement('div'); w.className = 'cwrap';
-      const card = mkCard(faceUp ? c : { rank: '?', suit: '' }, faceUp, { clickable, hl, sel, knownG: c.known && view.phase !== 'reveal' });
+      const card = mkCard(faceUp ? c : { rank: '?', suit: '' }, faceUp, { clickable, hl, sel, knownG: c.known && aid && view.phase !== 'reveal' });
+      if (memo && !aid && c.known && view.phase !== 'reveal') card.classList.add('memorize');
       card.id = `card-${view.you}-${idx}`;
       if (clickable) card.onclick = () => youClick(idx, view);
       w.appendChild(card);
@@ -234,11 +290,12 @@ const MP = (function () {
       if (view.deckCount > 1) { const s1 = document.createElement('div'); s1.className = 'ds1'; wrap.appendChild(s1); }
       const clickable = myTurn && view.phase === 'play';
       const card = mkCard(null, false, { clickable });
+      card.id = 'deck-top';
       if (clickable) card.onclick = () => action('draw_deck');
       wrap.appendChild(card);
       de.appendChild(wrap);
     } else {
-      const ep = document.createElement('div'); ep.className = 'empty-pile'; ep.textContent = '0'; de.appendChild(ep);
+      const ep = document.createElement('div'); ep.className = 'empty-pile'; ep.id = 'deck-top'; ep.textContent = '0'; de.appendChild(ep);
     }
     document.getElementById('deck-cnt').textContent = view.deckCount + ' left';
 
@@ -248,16 +305,19 @@ const MP = (function () {
     dzCard.innerHTML = ''; dzActs.innerHTML = '';
     if (view.drawnCard && myTurn) {
       dz.classList.add('active');
-      const card = mkCard(view.drawnCard, true); card.classList.add('deal-anim');
+      const card = mkCard(view.drawnCard, true);
+      card.id = 'dz-top';
       dzCard.appendChild(card);
       if (view.phase === 'drawn') {
         dzActs.appendChild(mkBtn('Discard', 'ab dng', () => action('discard_drawn')));
-        dzActs.appendChild(mkBtn('Swap a Card', 'ab pri', () => setMsg('Click <span class="hl">one of your cards</span> to swap.')));
-        if (isSpec(view.drawnCard.rank)) dzActs.appendChild(mkBtn(specLbl(view.drawnCard.rank), 'ab sec', () => action('use_special')));
+        const sw = mkBtn('Swap a Card', 'ab pri', () => setMsg('Click <span class="hl">one of your cards</span> (blue glow) to swap it out.'));
+        sw.title = 'Click one of your cards to replace it with the drawn card';
+        dzActs.appendChild(sw);
+        if (isSpec(view.drawnCard.rank)) { const b = mkBtn(specLbl(view.drawnCard.rank), 'ab sec', () => action('use_special')); b.title = specDesc(view.drawnCard.rank); dzActs.appendChild(b); }
       }
     } else {
       dz.classList.remove('active');
-      dzCard.innerHTML = view.someoneHasDrawn ? '<div class="dz-empty">…</div>' : '<div class="dz-empty">+</div>';
+      dzCard.innerHTML = `<div class="dz-empty" id="dz-top">${view.someoneHasDrawn ? '…' : '+'}</div>`;
     }
 
     const dse = document.getElementById('disc-el'); dse.innerHTML = '';
@@ -266,11 +326,12 @@ const MP = (function () {
       if (view.discardCount > 1) { const sh = document.createElement('div'); sh.className = 'dsh'; wrap.appendChild(sh); }
       const canTake = myTurn && view.phase === 'play';
       const card = mkCard(view.discardTop, true, { clickable: canTake });
+      card.id = 'disc-top';
       if (canTake) card.onclick = () => action('draw_discard');
       wrap.appendChild(card);
       dse.appendChild(wrap);
     } else {
-      const ep = document.createElement('div'); ep.className = 'empty-pile'; ep.textContent = '+'; dse.appendChild(ep);
+      const ep = document.createElement('div'); ep.className = 'empty-pile'; ep.id = 'disc-top'; ep.textContent = '+'; dse.appendChild(ep);
     }
     document.getElementById('disc-cnt').textContent = view.discardCount + ' cards';
   }
@@ -280,10 +341,12 @@ const MP = (function () {
     const br = document.getElementById('brow'); br.innerHTML = '';
     if (view.phase === 'reveal') { msg.innerHTML = '&nbsp;'; return; }
     const turnP = view.players[view.turn];
-    if (view.turn !== view.you) { msg.innerHTML = `<span class="hl">${turnP.name}</span> <span class="dim">is thinking...</span>`; return; }
+    const timer = '<span class="dim" id="turn-timer"></span>';
+    if (view.turn !== view.you) { msg.innerHTML = `<span class="hl">${esc(turnP.name)}</span> <span class="dim thinking">is thinking</span>${timer}`; return; }
     if (view.phase === 'play') {
       const x = view.caboBy !== -1 && view.caboBy !== view.turn ? ' <span class="dim">· Last turn!</span>' : '';
-      msg.innerHTML = `Draw from <span class="hl">deck</span> or take top <span class="hl">discard</span>.${x}`;
+      const m = Date.now() < memorizeUntil && !Settings.get('memoryAid') ? '<span class="hl">Memorize your cards!</span> Then d' : 'D';
+      msg.innerHTML = `${m}raw from <span class="hl">deck</span> or take top <span class="hl">discard</span>.${x}${timer}`;
     }
     if (view.phase === 'drawn') msg.innerHTML = `<span class="hl">Drawn card shown above</span> — Discard, Swap, or use Special.`;
     if (view.phase === 'spec-peek-own') {
@@ -296,7 +359,7 @@ const MP = (function () {
       br.appendChild(mkBtn('Cancel', 'ab', () => action('cancel_special')));
     }
     if (view.phase === 'spec-peek-opp-pick') {
-      msg.innerHTML = `Click a card from <span class="hl">${view.players[view.peekOppWho].name}</span>.`;
+      msg.innerHTML = `Click a card from <span class="hl">${esc(view.players[view.peekOppWho].name)}</span>.`;
       br.appendChild(mkBtn('Cancel', 'ab', () => action('cancel_special')));
     }
     if (view.phase === 'spec-swap1') {
@@ -332,45 +395,63 @@ const MP = (function () {
     sb.innerHTML = '';
     view.players.forEach((p, i) => {
       const r = document.createElement('div'); r.className = 'sc-row' + (i === view.you ? ' you' : '');
-      r.innerHTML = `<span>${p.name}</span><b>${(view.totals && view.totals[i]) || 0}</b>`;
+      r.innerHTML = `<span>${esc(p.name)}</span><b>${(view.totals && view.totals[i]) || 0}</b>`;
       sb.appendChild(r);
     });
+    const t = document.createElement('div'); t.className = 'sc-target'; t.textContent = `Game ends past ${view.targetScore || 100}`; sb.appendChild(t);
   }
   function toggleScores() { document.getElementById('scoreboard').classList.toggle('show'); if (lastView) renderScoreboard(lastView); }
   function callCabo() { action('call_cabo'); }
 
-  function showRevealOverlay(view) {
-    sfx('reveal');
-    const caboLost = view.caboLost;
-    const rows = view.players.map((p, i) => {
-      const s = (view.roundScores && view.roundScores[i]) ?? 0;
-      const pen = caboLost && i === view.caboBy ? ' +5' : '';
-      const isWin = i === view.winnerSeat;
-      return `<tr class="${isWin ? 'win' : ''}"><td>${p.name}${i === view.caboBy ? ' ★' : ''}</td><td class="scc">${s}${pen}</td><td class="scc" style="color:#7a6e5a">${(view.totals && view.totals[i]) || 0}</td></tr>`;
-    }).join('');
-    const extra = caboLost ? `<div style="color:#e07070;font-size:.76rem;margin-bottom:.5rem">${view.players[view.caboBy].name} called Cabo but didn't win — +5 penalty!</div>` : '';
-    const winnerName = view.players[view.winnerSeat] ? view.players[view.winnerSeat].name : '?';
+  function showRevealOverlay(view, silent) {
+    if (!silent) sfx('reveal');
+    revealOpen = true;
     const me = lastRoomSummary && lastRoomSummary.players[session.seat];
     const amHost = me && me.isHost;
+    const close = () => { revealOpen = false; closeOv(); };
     const btns = [];
     if (amHost) {
-      btns.push({ t: 'Next Round', c: 'ab pri', fn: () => { closeOv(); socket.emit('next_round', {}, (res) => { if (!res.ok) bnr(res.error, 'warn'); }); } });
-      btns.push({ t: 'New Game', c: 'ab', fn: () => { closeOv(); socket.emit('new_game', {}, (res) => { if (!res.ok) bnr(res.error, 'warn'); }); } });
+      if (!view.gameOver) btns.push({ t: 'Next Round', c: 'ab pri', fn: () => { close(); socket.emit('next_round', {}, (res) => { if (!res.ok) bnr(res.error, 'warn'); }); } });
+      btns.push({ t: 'New Game', c: view.gameOver ? 'ab pri' : 'ab', fn: () => { close(); socket.emit('new_game', {}, (res) => { if (!res.ok) bnr(res.error, 'warn'); }); } });
     } else {
       btns.push({ t: 'Waiting for host…', c: 'ab', fn: () => {} });
     }
-    btns.push({ t: 'Leave Room', c: 'ab dng', fn: () => { closeOv(); leaveRoom(); } });
-    showOv('Round Over',
-      `${extra}<table class="sct"><thead><tr><th style="text-align:left;color:var(--gold)">Player</th><th style="color:var(--gold)">Round</th><th style="color:var(--gold)">Total</th></tr></thead><tbody>${rows}</tbody></table><br>Winner: <b style="color:var(--gold2)">${winnerName}</b>`,
-      btns);
+    btns.push({ t: 'Leave Room', c: 'ab dng', fn: () => { close(); leaveRoom(); } });
+    const winners = view.winnerSeats && view.winnerSeats.length ? view.winnerSeats : [view.winnerSeat];
+    const prevTotals = view.totals || [];
+    if (silent) {
+      // just refresh buttons (host change) without replaying confetti
+      const bb = document.getElementById('ovbtns'); bb.innerHTML = '';
+      btns.forEach((x) => bb.appendChild(mkBtn(x.t, x.c, x.fn)));
+      return;
+    }
+    showRoundResult({
+      names: view.players.map((p) => p.name),
+      roundScores: view.roundScores || view.players.map(() => 0),
+      totals: prevTotals.map((t) => t || 0),
+      winners, caboBy: view.caboBy, caboLost: view.caboLost,
+      resets: [], gameOver: !!view.gameOver, you: view.you,
+    }, btns);
+  }
+
+  function inviteLink() {
+    return `${location.origin}${location.pathname}?room=${session.code}`;
+  }
+  function copyInvite() {
+    const link = inviteLink();
+    const done = () => { const b = document.getElementById('mp-invite-btn'); if (b) { b.textContent = 'Link copied!'; setTimeout(() => { b.textContent = 'Copy invite link'; }, 1600); } };
+    if (navigator.share && /Mobi/.test(navigator.userAgent)) navigator.share({ title: 'Join my CABO game', url: link }).catch(() => {});
+    else if (navigator.clipboard) navigator.clipboard.writeText(link).then(done, () => prompt('Copy this link:', link));
+    else prompt('Copy this link:', link);
   }
 
   function openMenu() {
-    showOv('Menu', '', [
+    showOv('Menu', settingsHTML(), [
       { t: 'Leave Room', c: 'ab dng', fn: () => { closeOv(); leaveRoom(); } },
       { t: 'Close', c: 'ab', fn: closeOv },
     ]);
+    bindSettings(() => { if (lastView) renderGame(lastView); });
   }
 
-  return { ensureSocket, createRoom, joinRoom, refreshRoomsList, setMaxPlayers, startGame, leaveRoom, toggleScores, openMenu, callCabo };
+  return { ensureSocket, createRoom, joinRoom, refreshRoomsList, setMaxPlayers, startGame, leaveRoom, toggleScores, openMenu, callCabo, copyInvite, rerender: () => { if (lastView) renderGame(lastView); } };
 })();

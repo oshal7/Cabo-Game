@@ -51,7 +51,9 @@
       <b>7/8</b> Peek one of your own cards &nbsp;<b>9/10</b> Peek an opponent's card<br>
       <b>J</b> Skip next player's turn &nbsp;<b>Q</b> Blind swap &nbsp;<b>K</b> Seen swap<br>
       <b>Match:</b> Discard same rank as pile top → free discard (once per player)<br>
-      <b>Cabo:</b> Call on your turn. Everyone else gets one final turn. Lowest wins. Wrong Cabo = +5 penalty.
+      <b>Memory:</b> You see your first two cards for a few seconds at the start — then remember them! (Menu → Memory aid keeps them visible.)<br>
+      <b>Cabo:</b> Call on your turn (after everyone has played once). Everyone else gets one final turn. Lowest wins. Wrong Cabo = +5 penalty.<br>
+      <b>Game:</b> Totals add up each round. Past 100 ends the game; exactly 100 resets to 50. Lowest total wins.
     </div>
   </div>
 
@@ -90,6 +92,7 @@
     </div>
     <div class="slbl">PLAYERS (<span id="mp-room-count">0</span>/<span id="mp-room-max">0</span>)</div>
     <div class="mp-seats" id="mp-seats"></div>
+    <button class="deal-btn ghost" id="mp-invite-btn" style="margin-top:0">Copy invite link</button>
     <button class="deal-btn" id="mp-start-btn">START GAME</button>
     <div class="mp-back" id="mp-leave-btn">‹ Leave Room</div>
     <div class="mp-err" id="mp-room-err"></div>
@@ -102,6 +105,7 @@
     <button class="cabo-btn" id="cabo-btn">CALL CABO</button>
     <div class="rbadge" id="rbadge">ROUND 1</div>
     <div class="tr">
+      <button class="sc-toggle" id="sound-btn" aria-label="Mute sound">🔊</button>
       <button class="sc-toggle" id="scores-btn">Scores</button>
       <button class="mbtn" id="menu-btn">≡ Menu</button>
     </div>
@@ -141,7 +145,7 @@
 </div>
 
 <!-- OVERLAY -->
-<div id="ov">
+<div id="ov" role="dialog" aria-modal="true" aria-labelledby="ovt">
   <div class="ovbox">
     <div class="ovtitle" id="ovt"></div>
     <div class="ovbody" id="ovb"></div>

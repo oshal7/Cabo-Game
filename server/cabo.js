@@ -29,6 +29,8 @@ function shuffle(a) {
   return a;
 }
 
+const TARGET_SCORE = 100;
+
 function scoreOf(game, i) {
   return game.players[i].cards.reduce((s, c) => s + cv(c.rank), 0);
 }
@@ -46,21 +48,40 @@ function createGame(names, round, totals) {
   // every seat starts having privately peeked their own cards 0 & 1
   players.forEach((p) => { p.cards[0].known = true; p.cards[1].known = true; });
   return {
+    id: Math.random().toString(36).slice(2, 10),
     deck, discard, players,
     turn: 0,
+    turnsTaken: 0,
+    finalPending: [],
     phase: 'play',
     drawnCard: null,
     swapSeen: false,
     swapPick1: null,
     peekOppWho: null,
     caboBy: -1,
-    caboLeft: 0,
     round: round || 1,
     totals: totals || players.map(() => 0),
     log: 'Round started — everyone peeked their first two cards.',
     winnerSeat: null,
+    winnerSeats: [],
     caboLost: false,
+    gameOver: false,
   };
+}
+
+// If the deck runs dry, reshuffle the discard pile (keeping its top card).
+// Returns false when there is nothing left to draw at all.
+function ensureDeck(game) {
+  if (game.deck.length) return true;
+  if (game.discard.length < 2) return false;
+  const top = game.discard.pop();
+  game.deck = shuffle(game.discard);
+  game.discard = [top];
+  return true;
+}
+
+function canCallCabo(game) {
+  return game.caboBy === -1 && game.phase === 'play' && game.turnsTaken >= game.players.length;
 }
 
 function checkMatch(game, card) {
@@ -79,34 +100,47 @@ function endTurn(game) {
   game.swapSeen = false;
   game.peekOppWho = null;
   game.phase = 'play';
-  if (game.caboBy !== -1) {
-    game.caboLeft--;
-    if (game.caboLeft <= 0) { revealAll(game); return; }
+  game.turnsTaken++;
+  const n = game.players.length;
+  const cabo = game.caboBy !== -1;
+  // Track exactly who still owes a final turn, so a J skip can never hand
+  // the Cabo caller (or anyone else) an extra turn.
+  if (cabo) game.finalPending = game.finalPending.filter((s) => s !== game.turn);
+  let next = (game.turn + 1) % n;
+  for (let guard = 0; guard < n * 2; guard++) {
+    const p = game.players[next];
+    if (p.skip) {
+      p.skip = false;
+      if (cabo) game.finalPending = game.finalPending.filter((s) => s !== next);
+      next = (next + 1) % n;
+      continue;
+    }
+    if (cabo && !game.finalPending.includes(next)) { next = (next + 1) % n; continue; }
+    break;
   }
-  let next = (game.turn + 1) % game.players.length;
-  let safety = 0;
-  while (game.players[next].skip && safety < game.players.length) {
-    game.players[next].skip = false;
-    next = (next + 1) % game.players.length;
-    safety++;
-  }
-  if (next <= game.turn) game.round++;
+  if (cabo && game.finalPending.length === 0) { revealAll(game); return; }
+  if (!ensureDeck(game)) { revealAll(game); return; }
   game.turn = next;
 }
 
 function revealAll(game) {
   game.phase = 'reveal';
+  game.finalPending = [];
   game.players.forEach((p) => p.cards.forEach((c) => { c.known = true; }));
-  const scores = game.players.map((p, i) => ({ i, s: scoreOf(game, i) }));
-  const min = Math.min(...scores.map((x) => x.s));
-  const winner = scores.find((x) => x.s === min);
-  const caboLost = game.caboBy !== -1 && scores[game.caboBy].s !== min;
-  scores.forEach((x) => {
-    game.totals[x.i] = (game.totals[x.i] || 0) + x.s + (caboLost && x.i === game.caboBy ? 5 : 0);
+  const scores = game.players.map((p, i) => scoreOf(game, i));
+  const min = Math.min(...scores);
+  const winners = scores.map((s, i) => (s === min ? i : -1)).filter((i) => i !== -1);
+  const caboLost = game.caboBy !== -1 && scores[game.caboBy] !== min;
+  scores.forEach((s, i) => {
+    let t = (game.totals[i] || 0) + s + (caboLost && i === game.caboBy ? 5 : 0);
+    if (t === TARGET_SCORE) t = 50; // house rule: landing exactly on 100 resets to 50
+    game.totals[i] = t;
   });
-  game.winnerSeat = winner.i;
+  game.winnerSeat = winners[0];
+  game.winnerSeats = winners;
   game.caboLost = caboLost;
-  game.roundScores = scores.map((x) => x.s);
+  game.roundScores = scores;
+  game.gameOver = game.totals.some((t) => t > TARGET_SCORE);
 }
 
 // Applies a player action. Returns { ok, error, banners }.
@@ -114,8 +148,9 @@ function revealAll(game) {
 function applyAction(game, seat, type, payload = {}) {
   const banners = [];
   const flashes = [];
-  const fail = (error) => ({ ok: false, error, banners, flashes });
-  const ok = (extra) => ({ ok: true, banners, flashes, ...extra });
+  const moves = [];
+  const fail = (error) => ({ ok: false, error, banners, flashes, moves });
+  const ok = (extra) => ({ ok: true, banners, flashes, moves, ...extra });
 
   if (game.phase === 'reveal') return fail('Round is over.');
   if (seat !== game.turn) return fail('Not your turn.');
@@ -124,9 +159,10 @@ function applyAction(game, seat, type, payload = {}) {
   switch (type) {
     case 'draw_deck': {
       if (game.phase !== 'play') return fail('Wrong phase.');
-      if (!game.deck.length) return fail('Deck is empty.');
+      if (!ensureDeck(game)) return fail('Deck is empty.');
       game.drawnCard = game.deck.pop();
       game.phase = 'drawn';
+      moves.push({ from: 'deck', to: 'drawn' });
       return ok();
     }
     case 'draw_discard': {
@@ -134,6 +170,9 @@ function applyAction(game, seat, type, payload = {}) {
       if (!game.discard.length) return fail('Discard pile is empty.');
       game.drawnCard = game.discard.pop();
       game.phase = 'drawn';
+      const c = game.drawnCard;
+      banners.push({ scope: 'others', exclude: seat, text: `${me.name} took the ${c.rank}${c.suit} from the discard pile.`, level: 'info' });
+      moves.push({ from: 'discard', to: 'drawn' });
       return ok();
     }
     case 'discard_drawn': {
@@ -141,6 +180,7 @@ function applyAction(game, seat, type, payload = {}) {
       const card = game.drawnCard;
       game.discard.push(card);
       game.drawnCard = null;
+      moves.push({ from: 'drawn', to: 'discard' });
       if (checkMatch(game, card)) {
         banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
       } else {
@@ -157,7 +197,8 @@ function applyAction(game, seat, type, payload = {}) {
       me.cards[idx] = { ...game.drawnCard, known: true };
       game.discard.push(old);
       game.drawnCard = null;
-      banners.push({ scope: 'all', text: `${me.name} swapped a card.`, level: 'info' });
+      banners.push({ scope: 'all', text: `${me.name} swapped card ${idx + 1}.`, level: 'info' });
+      moves.push({ from: 'drawn', to: { seat, idx } }, { from: { seat, idx }, to: 'discard' });
       if (checkMatch(game, old)) {
         banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
       } else {
@@ -254,6 +295,7 @@ function applyAction(game, seat, type, payload = {}) {
       else banners.push({ scope: seat, text: 'Blind swap done!', level: 'info' });
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} swapped with ${opp.name}.`, level: 'warn' });
       flashes.push({ kind: 'swap', seat: p1.owner, idx: p1.idx }, { kind: 'swap', seat: oppSeat, idx });
+      moves.push({ from: { seat: p1.owner, idx: p1.idx }, to: { seat: oppSeat, idx } }, { from: { seat: oppSeat, idx }, to: { seat: p1.owner, idx: p1.idx } });
       game.players[p1.owner].cards[p1.idx] = { ...c2, known: game.swapSeen };
       opp.cards[idx] = { ...c1, known: false };
       game.swapPick1 = null;
@@ -276,6 +318,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (game.phase !== 'match-pick') return fail('Wrong phase.');
       const idx = payload.idx;
       if (!(idx >= 0 && idx < me.cards.length)) return fail('Invalid card.');
+      moves.push({ from: { seat, idx }, to: 'discard' });
       const disc = me.cards.splice(idx, 1)[0];
       game.discard.push(disc);
       me.matchUsed = true;
@@ -293,8 +336,9 @@ function applyAction(game, seat, type, payload = {}) {
     case 'call_cabo': {
       if (game.phase !== 'play') return fail('Wrong phase.');
       if (game.caboBy !== -1) return fail('Cabo already called.');
+      if (!canCallCabo(game)) return fail('Cabo can be called once everyone has had a turn.');
       game.caboBy = seat;
-      game.caboLeft = game.players.length - 1;
+      game.finalPending = game.players.map((_, i) => i).filter((i) => i !== seat);
       banners.push({ scope: 'all', text: `${me.name} calls CABO! Everyone else gets one final turn.`, level: 'cabo' });
       endTurn(game);
       return ok();
@@ -331,6 +375,13 @@ function buildView(game, viewer) {
     drawnCard: (viewer === game.turn && game.drawnCard) ? game.drawnCard : null,
     someoneHasDrawn: !!game.drawnCard,
     peekOppWho: viewer === game.turn ? game.peekOppWho : null,
+    gameId: game.id,
+    canCabo: canCallCabo(game),
+    finalPending: game.finalPending,
+    winnerSeats: game.winnerSeats,
+    gameOver: game.gameOver,
+    targetScore: TARGET_SCORE,
+    turnDeadline: game.turnDeadline || null,
     swapPick1: viewer === game.turn ? game.swapPick1 : null,
     players,
     totals: game.totals,
@@ -341,4 +392,4 @@ function buildView(game, viewer) {
   };
 }
 
-module.exports = { createGame, applyAction, buildView, scoreOf, RANKS, SUITS, cv, isSpec };
+module.exports = { createGame, applyAction, buildView, scoreOf, endTurn, RANKS, SUITS, cv, isSpec, TARGET_SCORE };

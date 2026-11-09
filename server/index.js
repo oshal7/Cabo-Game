@@ -5,6 +5,23 @@ const { Server } = require('socket.io');
 const { RoomManager } = require('./rooms');
 const { applyAction, buildView } = require('./cabo');
 
+// Turn timers: a disconnected player is auto-played quickly; a connected but
+// idle player gets a generous limit so one AFK seat can't freeze the room.
+const TURN_MS_CONNECTED = 90 * 1000;
+const TURN_MS_DISCONNECTED = 15 * 1000;
+
+function cleanName(raw, fallback) {
+  return String(raw || '').replace(/[<>&"'`]/g, '').trim().slice(0, 16) || fallback;
+}
+
+// Very small per-socket rate limit: at most 15 events per 2 seconds.
+function rateOk(socket) {
+  const now = Date.now();
+  const r = socket.data.rate || (socket.data.rate = { t: now, n: 0 });
+  if (now - r.t > 2000) { r.t = now; r.n = 0; }
+  return ++r.n <= 15;
+}
+
 const PORT = process.env.PORT || 3000;
 const rooms = new RoomManager(3);
 
@@ -24,8 +41,42 @@ function broadcastRoom(room) {
   io.to(room.code).emit('room_update', room.summary());
 }
 
+function scheduleTurnTimer(room) {
+  clearTimeout(room.turnTimer);
+  room.turnTimer = null;
+  const game = room.game;
+  if (!game || game.phase === 'reveal' || !room.hasConnectedSeat()) { if (game) game.turnDeadline = null; return; }
+  const seat = room.seats[game.turn];
+  const ms = seat && seat.connected ? TURN_MS_CONNECTED : TURN_MS_DISCONNECTED;
+  const turnAtSchedule = game.turn;
+  const turnsAtSchedule = game.turnsTaken;
+  game.turnDeadline = Date.now() + ms;
+  room.turnTimer = setTimeout(() => {
+    if (room.game !== game || game.turn !== turnAtSchedule || game.turnsTaken !== turnsAtSchedule) return;
+    autoPlay(room);
+  }, ms);
+}
+
+// Plays the safest legal move for the current seat (draw + discard).
+function autoPlay(room) {
+  const game = room.game;
+  const seatIdx = game.turn;
+  const name = room.seats[seatIdx] ? room.seats[seatIdx].name : 'Player';
+  if (game.phase.startsWith('spec-')) applyAction(game, seatIdx, 'cancel_special');
+  if (game.phase === 'match-pick') applyAction(game, seatIdx, 'match_skip');
+  else {
+    if (game.phase === 'play') applyAction(game, seatIdx, 'draw_deck');
+    if (game.phase === 'drawn') applyAction(game, seatIdx, 'discard_drawn');
+    if (game.phase === 'match-pick') applyAction(game, seatIdx, 'match_skip');
+  }
+  io.to(room.code).emit('banner', { text: `${name} ran out of time — auto-played.`, level: 'warn' });
+  broadcastGame(room);
+  if (game.phase === 'reveal') broadcastLobby();
+}
+
 function broadcastGame(room) {
   if (!room.game) return;
+  scheduleTurnTimer(room);
   for (const seat of room.seats) {
     if (seat.connected && seat.socketId) {
       io.to(seat.socketId).emit('game_state', buildView(room.game, room.seats.indexOf(seat)));
@@ -63,6 +114,7 @@ function seatFor(socket) {
 }
 
 io.on('connection', (socket) => {
+  socket.data = socket.data || {};
   socket.emit('rooms_list', rooms.list());
 
   socket.on('list_rooms', () => {
@@ -71,12 +123,11 @@ io.on('connection', (socket) => {
 
   socket.on('create_room', ({ name, maxPlayers }, ack) => {
     try {
-      const cleanName = String(name || 'Host').trim().slice(0, 16) || 'Host';
-      const { room, token } = rooms.create(cleanName, maxPlayers);
+      const { room, token } = rooms.create(cleanName(name, 'Host'), maxPlayers);
       room.seats[0].socketId = socket.id;
       room.seats[0].connected = true;
       room.lastActivity = Date.now();
-      socket.data = { roomCode: room.code, token };
+      socket.data = { ...socket.data, roomCode: room.code, token };
       socket.join(room.code);
       ack && ack({ ok: true, code: room.code, token, seat: 0, room: room.summary() });
       broadcastLobby();
@@ -87,13 +138,12 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', ({ code, name }, ack) => {
     try {
-      const cleanName = String(name || 'Player').trim().slice(0, 16) || 'Player';
-      const { room, token } = rooms.join(code, cleanName);
+      const { room, token } = rooms.join(code, cleanName(name, 'Player'));
       const seatIdx = room.seatIndexByToken(token);
       room.seats[seatIdx].socketId = socket.id;
       room.seats[seatIdx].connected = true;
       room.lastActivity = Date.now();
-      socket.data = { roomCode: room.code, token };
+      socket.data = { ...socket.data, roomCode: room.code, token };
       socket.join(room.code);
       ack && ack({ ok: true, code: room.code, token, seat: seatIdx, room: room.summary() });
       broadcastRoom(room);
@@ -112,7 +162,7 @@ io.on('connection', (socket) => {
       room.seats[seatIdx].socketId = socket.id;
       room.seats[seatIdx].connected = true;
       room.lastActivity = Date.now();
-      socket.data = { roomCode: room.code, token };
+      socket.data = { ...socket.data, roomCode: room.code, token };
       socket.join(room.code);
       ack && ack({ ok: true, code: room.code, token, seat: seatIdx, room: room.summary(), status: room.status });
       broadcastRoom(room);
@@ -140,7 +190,8 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('action', ({ type, payload }, ack) => {
+  socket.on('action', ({ type, payload } = {}, ack) => {
+    if (!rateOk(socket)) return ack && ack({ ok: false, error: 'Slow down a little.' });
     const found = seatFor(socket);
     if (!found) return ack && ack({ ok: false, error: 'Not in a room.' });
     const { room, seatIdx } = found;
@@ -149,6 +200,7 @@ io.on('connection', (socket) => {
     room.lastActivity = Date.now();
     if (!result.ok) return ack && ack(result);
     sendBanners(room, result.banners, seatIdx);
+    if (result.moves && result.moves.length) io.to(room.code).emit('moves', result.moves);
     if (result.flashes && result.flashes.length) io.to(room.code).emit('flashes', result.flashes);
     ack && ack({ ok: true, reveal: result.reveal });
     // Give the peek flip/blur animation time to play before the next
@@ -158,7 +210,7 @@ io.on('connection', (socket) => {
       broadcastGame(room);
       if (room.game.phase === 'reveal') broadcastLobby();
     };
-    if (hasPeek) setTimeout(sendState, 1450);
+    if (hasPeek) setTimeout(sendState, 2000);
     else sendState();
   });
 
@@ -167,6 +219,7 @@ io.on('connection', (socket) => {
     if (!found) return ack && ack({ ok: false, error: 'Not in a room.' });
     const { room, seatIdx } = found;
     if (!room.seats[seatIdx].isHost) return ack && ack({ ok: false, error: 'Only the host can continue.' });
+    if (room.game && room.game.gameOver) return ack && ack({ ok: false, error: 'Game over — start a new game.' });
     try {
       room.nextRound();
       room.lastActivity = Date.now();
@@ -199,7 +252,7 @@ io.on('connection', (socket) => {
     room.seats[seatIdx].connected = false;
     room.seats[seatIdx].socketId = null;
     socket.leave(room.code);
-    socket.data = {};
+    socket.data = { rate: socket.data.rate };
     if (room.status === 'lobby') {
       room.seats.splice(seatIdx, 1);
       if (room.seats.length === 0) {
@@ -215,6 +268,7 @@ io.on('connection', (socket) => {
       }
       io.to(room.code).emit('banner', { text: `${room.seats[seatIdx].name} left the game.`, level: 'warn' });
       broadcastRoom(room);
+      broadcastGame(room);
     }
     broadcastLobby();
   });
@@ -241,6 +295,7 @@ io.on('connection', (socket) => {
       }
       io.to(room.code).emit('banner', { text: `${room.seats[seatIdx].name} disconnected. Waiting for them to reconnect…`, level: 'warn' });
       broadcastRoom(room);
+      broadcastGame(room);
     }
     broadcastLobby();
   });

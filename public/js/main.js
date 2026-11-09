@@ -60,12 +60,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // multiplayer waiting room
   document.getElementById('mp-start-btn').addEventListener('click', () => MP.startGame());
+  document.getElementById('mp-invite-btn').addEventListener('click', () => MP.copyInvite());
   document.getElementById('mp-leave-btn').addEventListener('click', () => MP.leaveRoom());
 
   // shared in-game controls
   document.getElementById('cabo-btn').addEventListener('click', () => ActiveGame.callCabo());
   document.getElementById('scores-btn').addEventListener('click', () => ActiveGame.toggleScores());
   document.getElementById('menu-btn').addEventListener('click', () => ActiveGame.openMenu());
+  document.getElementById('sound-btn').addEventListener('click', () => { Settings.set('sound', !Settings.get('sound')); updateSoundBtn(); });
+  updateSoundBtn();
+
+  // remember names between visits
+  const savedName = Settings.get('name');
+  if (savedName) { document.getElementById('pname').value = savedName; document.getElementById('mp-name').value = savedName; }
+  document.getElementById('mp-name').addEventListener('change', (e) => Settings.set('name', e.target.value.trim()));
+
+  // invite links: ?room=CODE opens the Online tab with the code filled in
+  const inviteCode = new URLSearchParams(location.search).get('room');
+  if (inviteCode && !sessionStorage.getItem('cabo_mp_session')) {
+    document.querySelector('#playmode-seg [data-playmode="online"]').click();
+    document.getElementById('mp-code').value = inviteCode.toUpperCase().slice(0, 4);
+    document.getElementById('mp-name').focus();
+  }
 
   Screens.show('setup');
   // Only open a socket eagerly if we have a saved room to rejoin (e.g. after
