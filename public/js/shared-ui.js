@@ -8,6 +8,44 @@ const RED = new Set(['♥','♦']);
 function cv(r){if(r==='A')return 1;if(r==='K')return 0;if(r==='J')return 11;if(r==='Q')return 12;if(r==='JOKER')return-2;return+r;}
 function isSpec(r){return['7','8','9','10','J','Q','K'].includes(r);}
 function specDesc(r){return{7:'Look at one of your own cards',8:'Look at one of your own cards',9:"Look at one opponent's card",10:"Look at one opponent's card",J:"Skip the next player's turn",Q:'Swap one of your cards with an opponent card, unseen',K:'Look at your card, then swap it with an opponent card'}[r]||'';}
+const POWERS={
+  7:{icon:'👁',name:'Peek',desc:'Look at one of your own cards'},
+  8:{icon:'👁',name:'Peek',desc:'Look at one of your own cards'},
+  9:{icon:'🔍',name:'Spy',desc:"Look at one opponent's card"},
+  10:{icon:'🔍',name:'Spy',desc:"Look at one opponent's card"},
+  J:{icon:'⏭',name:'Skip',desc:"Skip the next player's turn"},
+  Q:{icon:'🔀',name:'Blind swap',desc:"Swap one of your cards with an opponent's, unseen"},
+  K:{icon:'👑',name:'Seen swap',desc:"Look at your card, then swap it with an opponent's"},
+};
+// Big, clear choices while you hold a drawn card (rendered into the action bar).
+// o: {card, fromDiscard, onDiscard, onPower}
+function drawnActions(o){
+  let box=document.createElement('div');box.className='drawn-acts';
+  let pw=!o.fromDiscard&&POWERS[o.card.rank];
+  if(pw){
+    let b=document.createElement('button');b.className='big-act power';
+    b.innerHTML=`<span class="ba-icon">${pw.icon}</span><span class="ba-txt"><b>Use ${esc(o.card.rank)} · ${pw.name}</b><small>${pw.desc}</small></span>`;
+    b.onclick=o.onPower;box.appendChild(b);
+  }
+  let row=document.createElement('div');row.className='ba-row';
+  let sw=document.createElement('button');sw.className='big-act swap';
+  sw.innerHTML='<span class="ba-icon">⇅</span><span class="ba-txt"><b>Keep it</b><small>Tap a card in your hand to swap</small></span>';
+  sw.onclick=()=>{let h=document.getElementById('ycards');if(h){h.classList.remove('nudge');void h.offsetWidth;h.classList.add('nudge');}};
+  row.appendChild(sw);
+  if(!o.fromDiscard){
+    let d=document.createElement('button');d.className='big-act discard';
+    d.innerHTML='<span class="ba-icon">🗑</span><span class="ba-txt"><b>Discard</b><small>Throw it away'+(pw?' (no power)':'')+'</small></span>';
+    d.onclick=o.onDiscard;row.appendChild(d);
+  }
+  box.appendChild(row);
+  return box;
+}
+// Power badge shown on the drawn card itself.
+function powerBadge(cardEl,rank,fromDiscard){
+  if(fromDiscard||!POWERS[rank])return;
+  let b=document.createElement('div');b.className='pw-badge';b.textContent=POWERS[rank].icon+' '+POWERS[rank].name;
+  cardEl.appendChild(b);
+}
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));}
 const SUIT_NAMES={'♠':'spades','♥':'hearts','♦':'diamonds','♣':'clubs','★':''};
 function cardName(c){if(!c||!c.rank||c.rank==='?')return'face-down card';if(c.rank==='JOKER')return'Joker';return c.rank+' of '+SUIT_NAMES[c.suit];}
@@ -144,36 +182,63 @@ function sfx(type){
 // ── overlay / banner ──
 function showOv(title,body,btns,opts={}){
   document.getElementById('ov').classList.toggle('solid',!!opts.solid);
+  document.getElementById('ov').classList.toggle('wide',!!opts.wide);
   document.getElementById('ovt').textContent=title;
   document.getElementById('ovb').innerHTML=body;
   let bb=document.getElementById('ovbtns');bb.innerHTML='';
   btns.forEach(x=>{let b=document.createElement('button');b.className=x.c;b.textContent=x.t;b.onclick=x.fn;bb.appendChild(b);});
   document.getElementById('ov').classList.add('show');
 }
-function closeOv(){document.getElementById('ov').classList.remove('show','solid');}
+function closeOv(){document.getElementById('ov').classList.remove('show','solid','wide');}
 
-// Round / game result table shared by local and online play.
-// d: {names, roundScores, totals, winners, caboBy, caboLost, resets, gameOver, you}
+// Round / game result screen shared by local and online play.
+// d: {names, roundScores, totals, winners, caboBy, caboLost, resets, gameOver, you, hands, target}
 function showRoundResult(d,btns){
-  let order=d.names.map((_,i)=>i);
-  if(d.gameOver)order.sort((a,b)=>d.totals[a]-d.totals[b]);
-  let rows=order.map(i=>{
-    let pen=d.caboLost&&i===d.caboBy?' <span class="pen">+5</span>':'';
-    let win=d.gameOver?d.totals[i]===Math.min(...d.totals):d.winners.includes(i);
-    return `<tr class="${win?'win':''}${i===d.you?' me':''}"><td>${esc(d.names[i])}${i===d.caboBy?' ★':''}</td><td class="scc">${d.roundScores[i]}${pen}</td><td class="scc tot">${d.totals[i]}</td></tr>`;
+  const target=d.target||100;
+  const n=d.names.length;
+  const minTot=Math.min(...d.totals);
+  // rank by this round's score (or by total when the game is over)
+  const key=i=>d.gameOver?d.totals[i]:d.roundScores[i]+(d.caboLost&&i===d.caboBy?5:0);
+  let order=d.names.map((_,i)=>i).sort((a,b)=>key(a)-key(b));
+  let winSet=d.gameOver?order.filter(i=>d.totals[i]===minTot):d.winners;
+  let youWon=winSet.includes(d.you);
+  let winNames=winSet.map(i=>i===d.you?'You':d.names[i]);
+  let heroTitle=youWon
+    ?(winSet.length>1?'You tied for the win!':(d.gameOver?'You win the game!':'You win the round!'))
+    :`${winNames.join(' & ')} ${winSet.length>1?'tie':'wins'} ${d.gameOver?'the game':'the round'}`;
+  let heroSub=d.gameOver
+    ?`Final score ${d.totals[winSet[0]]} — lowest total after someone passed ${target}.`
+    :`Lowest hand: ${d.roundScores[winSet[0]]} point${d.roundScores[winSet[0]]===1?'':'s'}.`;
+  let medal=['🥇','🥈','🥉','4th'];
+  let place=0,prev=null;
+  let rows=order.map((i,k)=>{
+    if(key(i)!==prev){place=k;prev=key(i);}
+    let isWin=winSet.includes(i);
+    let tags='';
+    if(i===d.you)tags+='<span class="rt you">YOU</span>';
+    if(i===d.caboBy)tags+=`<span class="rt cabo">CABO${d.caboLost?' ✗':' ✓'}</span>`;
+    let hand=(d.hands&&d.hands[i]||[]).map(c=>`<span class="mini ${c.rank==='JOKER'?'jk':RED.has(c.suit)?'rd':''}">${c.rank==='JOKER'?'🃏':esc(c.rank)+esc(c.suit)}</span>`).join('');
+    let pen=d.caboLost&&i===d.caboBy?'<span class="rpen">+5</span>':'';
+    let pct=Math.min(100,100*d.totals[i]/target);
+    let danger=d.totals[i]>=target*0.8?' danger':'';
+    return `<div class="rrow${isWin?' win':''}${i===d.you?' me':''}" style="animation-delay:${k*120}ms">
+      <div class="rpos">${isWin?'👑':(medal[place]||(place+1)+'th')}</div>
+      <div class="rmain">
+        <div class="rname">${esc(i===d.you?'You':d.names[i])}${tags}</div>
+        <div class="rhand">${hand}</div>
+        <div class="rtot"><div class="rbar${danger}"><i style="width:${pct}%"></i></div><span>${d.totals[i]} / ${target}</span></div>
+      </div>
+      <div class="rscore"><b>${d.roundScores[i]}</b>${pen}<small>${d.gameOver?'last hand':'this round'}</small></div>
+    </div>`;
   }).join('');
   let notes='';
-  if(d.caboLost)notes+=`<div class="ov-note bad">${esc(d.names[d.caboBy])} called Cabo but didn't win — +5 penalty!</div>`;
-  (d.resets||[]).forEach(n=>{notes+=`<div class="ov-note good">${esc(n)} hit exactly 100 — reset to 50!</div>`;});
-  let winNames=d.gameOver
-    ?d.names.filter((_,i)=>d.totals[i]===Math.min(...d.totals))
-    :d.winners.map(i=>d.names[i]);
-  let head=d.gameOver?'Champion':(winNames.length>1?'Tied winners':'Winner');
-  let youWon=d.gameOver?d.totals[d.you]===Math.min(...d.totals):d.winners.includes(d.you);
+  if(d.caboLost)notes+=`<div class="ov-note bad">${esc(d.caboBy===d.you?'You':d.names[d.caboBy])} called Cabo but didn't have the lowest hand — +5 penalty.</div>`;
+  else if(d.caboBy>=0&&d.caboBy!==undefined&&d.caboBy!==-1)notes+=`<div class="ov-note good">${esc(d.caboBy===d.you?'You':d.names[d.caboBy])} called Cabo and made it!</div>`;
+  (d.resets||[]).forEach(nm=>{notes+=`<div class="ov-note good">${esc(nm)} hit exactly ${target} — reset to 50!</div>`;});
   showOv(d.gameOver?'Game Over':'Round Over',
-    `${notes}<table class="sct"><thead><tr><th style="text-align:left">Player</th><th>Round</th><th>Total</th></tr></thead><tbody>${rows}</tbody></table>`+
-    `<div class="ov-win">${head}: <b>${winNames.map(esc).join(', ')}</b></div>`+
-    (d.gameOver?'':'<div class="dim-note">Game ends when someone goes past 100. Lowest total wins.</div>'),btns);
+    `<div class="hero${youWon?' won':''}"><div class="hero-ic">${youWon?'🏆':'👑'}</div><div><div class="hero-t">${esc(heroTitle)}</div><div class="hero-s">${esc(heroSub)}</div></div></div>`+
+    notes+`<div class="rlist">${rows}</div>`+
+    (d.gameOver?'':`<div class="dim-note">Scores add up each round. Past ${target} ends the game — lowest total wins.</div>`),btns,{wide:true});
   if(youWon&&!REDUCED_MOTION)confetti();
 }
 function confetti(){

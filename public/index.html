@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CABO — The Card Game</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="css/style.css?v=4"/>
+<link rel="stylesheet" href="css/style.css?v=5"/>
 </head>
 <body>
 <div id="scale-root">
@@ -50,7 +50,8 @@
       <b>Values:</b> A=1 · 2–Q=face · K=0 · Joker=−2<br>
       <b>7/8</b> Peek one of your own cards &nbsp;<b>9/10</b> Peek an opponent's card<br>
       <b>J</b> Skip next player's turn &nbsp;<b>Q</b> Blind swap &nbsp;<b>K</b> Seen swap<br>
-      <b>Match:</b> Discard same rank as pile top → free discard (once per player)<br>
+      <b>Match:</b> At the start of your turn, before drawing, tap <b>Match</b> and throw a card of the same rank as the discard top. Right = it leaves your hand. Wrong = it's shown and you take a penalty card. Matches have no power.<br>
+      <b>Discard pile:</b> A card you take from the discard pile has no power — you must swap it into your hand.<br>
       <b>Memory:</b> You see your first two cards for a few seconds at the start — then remember them! (Menu → Memory aid keeps them visible.)<br>
       <b>Cabo:</b> Call on your turn (after everyone has played once). Everyone else gets one final turn. Lowest wins. Wrong Cabo = +5 penalty.<br>
       <b>Game:</b> Totals add up each round. Past 100 ends the game; exactly 100 resets to 50. Lowest total wins.
@@ -156,10 +157,10 @@
 </div><!-- /scale-root -->
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="js/config.js?v=4"></script>
-<script src="js/shared-ui.js?v=4"></script>
-<script src="js/local-game.js?v=4"></script>
-<script src="js/multiplayer.js?v=4"></script>
-<script src="js/main.js?v=4"></script>
+<script src="js/config.js?v=5"></script>
+<script src="js/shared-ui.js?v=5"></script>
+<script src="js/local-game.js?v=5"></script>
+<script src="js/multiplayer.js?v=5"></script>
+<script src="js/main.js?v=5"></script>
 </body>
 </html>

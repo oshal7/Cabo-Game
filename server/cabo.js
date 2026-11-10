@@ -41,7 +41,6 @@ function createGame(names, round, totals) {
   const players = names.map((name) => ({
     name,
     cards: deck.splice(0, 4).map((c) => ({ ...c, known: false })),
-    matchUsed: false,
     skip: false,
   }));
   const discard = [deck.pop()];
@@ -86,18 +85,18 @@ function canCallCabo(game) {
   return game.caboBy === -1 && game.phase === 'play' && game.turnsTaken >= game.players.length;
 }
 
-function checkMatch(game, card) {
-  if (game.discard.length < 2 || game.players[game.turn].matchUsed) return false;
-  const prev = game.discard[game.discard.length - 2];
-  if (prev && prev.rank === card.rank) {
-    game.phase = 'match-pick';
-    return true;
-  }
-  return false;
+// Match rule: at the start of your turn (before drawing) you may throw a card
+// from your hand onto the discard pile if it has the same rank as the top
+// card. Right: it leaves your hand (you may try again). Wrong: the card is
+// shown to everyone and stays, you take a face-down penalty card, and you
+// can't try again this turn. Matching never triggers a card's power.
+function canMatch(game) {
+  return game.phase === 'play' && !game.matchBlocked && game.discard.length > 0;
 }
 
 function endTurn(game) {
   game.drawnFromDiscard = false;
+  game.matchBlocked = false;
   game.drawnCard = null;
   game.swapPick1 = null;
   game.swapSeen = false;
@@ -185,17 +184,13 @@ function applyAction(game, seat, type, payload = {}) {
     }
     case 'discard_drawn': {
       if (game.phase !== 'drawn') return fail('Wrong phase.');
+      if (game.drawnFromDiscard) return fail('A card taken from the discard pile must be swapped into your hand.');
       const card = game.drawnCard;
       game.discard.push(card);
       game.drawnCard = null;
       moves.push({ from: 'drawn', to: 'discard' });
       act(`Discarded ${card.rank}${card.suit}`);
-      if (checkMatch(game, card)) {
-        banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
-      } else {
-        game.phase = 'play';
-        endTurn(game);
-      }
+      endTurn(game);
       return ok();
     }
     case 'swap_card': {
@@ -209,16 +204,12 @@ function applyAction(game, seat, type, payload = {}) {
       banners.push({ scope: 'all', text: `${me.name} swapped card ${idx + 1}.`, level: 'info' });
       moves.push({ from: 'drawn', to: { seat, idx } }, { from: { seat, idx }, to: 'discard' });
       act(`Swapped card ${idx + 1}, discarded ${old.rank}${old.suit}`);
-      if (checkMatch(game, old)) {
-        banners.push({ scope: 'all', text: 'Match! Free discard bonus.', level: 'good' });
-      } else {
-        game.phase = 'play';
-        endTurn(game);
-      }
+      endTurn(game);
       return ok();
     }
     case 'use_special': {
       if (game.phase !== 'drawn') return fail('Wrong phase.');
+      if (game.drawnFromDiscard) return fail('Cards taken from the discard pile have no power.');
       const r = game.drawnCard.rank;
       if (!isSpec(r)) return fail('Drawn card has no special power.');
       if (r === '7' || r === '8') { game.phase = 'spec-peek-own'; return ok(); }
@@ -329,25 +320,31 @@ function applyAction(game, seat, type, payload = {}) {
       game.peekOppWho = null;
       return ok();
     }
-    case 'match_pick': {
-      if (game.phase !== 'match-pick') return fail('Wrong phase.');
+    case 'match': {
+      if (!canMatch(game)) return fail(game.matchBlocked ? 'No more match attempts this turn.' : 'You can only match before drawing.');
       const idx = payload.idx;
       if (!(idx >= 0 && idx < me.cards.length)) return fail('Invalid card.');
-      moves.push({ from: { seat, idx }, to: 'discard' });
-      const disc = me.cards.splice(idx, 1)[0];
-      game.discard.push(disc);
-      me.matchUsed = true;
-      banners.push({ scope: 'all', text: `${me.name} used the match bonus.`, level: 'good' });
-      act(`Match bonus: threw away card ${idx + 1}`);
-      game.phase = 'play';
-      endTurn(game);
-      return ok();
-    }
-    case 'match_skip': {
-      if (game.phase !== 'match-pick') return fail('Wrong phase.');
-      game.phase = 'play';
-      endTurn(game);
-      return ok();
+      const top = game.discard[game.discard.length - 1];
+      const c = me.cards[idx];
+      if (c.rank === top.rank) {
+        moves.push({ from: { seat, idx }, to: 'discard' });
+        me.cards.splice(idx, 1);
+        game.discard.push({ rank: c.rank, suit: c.suit });
+        banners.push({ scope: 'all', text: `${me.name} matched a ${c.rank}!`, level: 'good' });
+        act(`Matched a ${c.rank} — threw away card ${idx + 1}`);
+        return ok({ matched: true });
+      }
+      // wrong: show the card to everyone, keep it, take a penalty card
+      c.known = true;
+      game.matchBlocked = true;
+      flashes.push({ kind: 'reveal', seat, idx, rank: c.rank, suit: c.suit, label: 'Not a match!' });
+      if (ensureDeck(game)) {
+        me.cards.push({ ...game.deck.pop(), known: false });
+        moves.push({ from: 'deck', to: { seat, idx: me.cards.length - 1 } });
+      }
+      banners.push({ scope: 'all', text: `${me.name} tried to match a ${c.rank} on a ${top.rank} — penalty card!`, level: 'warn' });
+      act(`Wrong match (${c.rank}${c.suit}) — took a penalty card`);
+      return ok({ matched: false });
     }
     case 'call_cabo': {
       if (game.phase !== 'play') return fail('Wrong phase.');
@@ -373,7 +370,6 @@ function buildView(game, viewer) {
     return {
       seat: i,
       name: p.name,
-      matchUsed: p.matchUsed,
       cardCount: p.cards.length,
       cards: p.cards.map((c) => (revealAllCards || (mine && c.known))
         ? { known: true, rank: c.rank, suit: c.suit }
@@ -401,6 +397,8 @@ function buildView(game, viewer) {
     turnDeadline: game.turnDeadline || null,
     turnMs: game.turnMs || null,
     turnNo: game.turnsTaken,
+    canMatch: viewer === game.turn && canMatch(game),
+    drawnFromDiscard: viewer === game.turn ? !!game.drawnFromDiscard : null,
     lastActions: game.lastActions,
     drawnPublic: game.drawnFromDiscard ? game.drawnCard : null,
     swapPick1: viewer === game.turn ? game.swapPick1 : null,

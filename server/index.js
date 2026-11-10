@@ -64,11 +64,10 @@ function autoPlay(room) {
   const seatIdx = game.turn;
   const name = room.seats[seatIdx] ? room.seats[seatIdx].name : 'Player';
   if (game.phase.startsWith('spec-')) applyAction(game, seatIdx, 'cancel_special');
-  if (game.phase === 'match-pick') applyAction(game, seatIdx, 'match_skip');
-  else {
-    if (game.phase === 'play') applyAction(game, seatIdx, 'draw_deck');
-    if (game.phase === 'drawn') applyAction(game, seatIdx, 'discard_drawn');
-    if (game.phase === 'match-pick') applyAction(game, seatIdx, 'match_skip');
+  if (game.phase === 'play') applyAction(game, seatIdx, 'draw_deck');
+  if (game.phase === 'drawn') {
+    if (game.drawnFromDiscard) applyAction(game, seatIdx, 'swap_card', { idx: 0 });
+    else applyAction(game, seatIdx, 'discard_drawn');
   }
   io.to(room.code).emit('banner', { text: `${name} ran out of time — auto-played.`, level: 'warn' });
   broadcastGame(room);
@@ -206,7 +205,7 @@ io.on('connection', (socket) => {
     ack && ack({ ok: true, reveal: result.reveal });
     // Give the peek flip/blur animation time to play before the next
     // game_state wipes the card elements with a fresh re-render.
-    const hasPeek = result.flashes && result.flashes.some((f) => f.kind === 'peek');
+    const hasPeek = result.flashes && result.flashes.some((f) => f.kind === 'peek' || f.kind === 'reveal');
     const sendState = () => {
       broadcastGame(room);
       if (room.game.phase === 'reveal') broadcastLobby();

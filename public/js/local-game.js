@@ -45,7 +45,7 @@ const Local = (function () {
     let players = names.map((nm, i) => ({
       name: nm, isHuman: i === 0 || C.mode === 'pass',
       cards: deck.splice(0, 4).map((c) => ({ ...c, known: false, aiKnown: false })),
-      matchUsed: false, skip: false, memorized: false,
+      skip: false, memorized: false,
     }));
     let discard = [deck.pop()];
     // every owner starts knowing their first two cards
@@ -55,7 +55,7 @@ const Local = (function () {
       deck, discard, players, turn: 0, viewer: 0, phase: 'play', drawnCard: null, swapSeen: false, swapPick1: null,
       peekOppWho: null, caboBy: -1, finalPending: [], turnsTaken: 0, round: G.round || 1,
       log: 'New hand — memorize your first two cards!', handoff: false, memorizeUntil: 0,
-      acts: {}, drawnFromDiscard: false, cueTurn: -1,
+      acts: {}, drawnFromDiscard: false, cueTurn: -1, matchMode: false, matchBlocked: false,
     };
     closeOv();
     if (C.mode === 'pass') handoff(0, () => {});
@@ -181,7 +181,7 @@ const Local = (function () {
         if (G.phase === 'spec-peek-own') { clickable = true; hl = 'peek'; }
         if (G.phase === 'spec-swap1') { clickable = true; hl = 'swap'; }
         if (G.phase === 'spec-swap2' && G.swapPick1 && G.swapPick1.owner === v && G.swapPick1.idx === idx) sel = true;
-        if (G.phase === 'match-pick') { clickable = true; hl = 'discard'; }
+        if (G.phase === 'play' && G.matchMode) { clickable = true; hl = 'discard'; }
       }
       let w = document.createElement('div'); w.className = 'cwrap';
       let card = mkCard(c, faceUp, { clickable, hl, sel, knownG: c.known && aid && G.phase !== 'reveal' });
@@ -232,14 +232,8 @@ const Local = (function () {
       dz.classList.add('active');
       let card = mkCard(G.drawnCard, true);
       card.id = 'dz-top';
+      powerBadge(card, G.drawnCard.rank, G.drawnFromDiscard);
       dzCard.appendChild(card);
-      if (G.phase === 'drawn') {
-        dzActs.appendChild(mkBtn('Discard', 'ab dng', doDiscardDrawn));
-        let sw = mkBtn('Swap a Card', 'ab pri', () => setMsg('Click <span class="hl">one of your cards</span> (blue glow) to swap it out.'));
-        sw.title = 'Click one of your cards to replace it with the drawn card';
-        dzActs.appendChild(sw);
-        if (isSpec(G.drawnCard.rank)) { let b = mkBtn(specLbl(G.drawnCard.rank), 'ab sec', useSpecial); b.title = specDesc(G.drawnCard.rank); dzActs.appendChild(b); }
-      }
     } else {
       dz.classList.remove('active');
       dzCard.innerHTML = `<div class="dz-empty" id="dz-top">+</div>`;
@@ -268,12 +262,27 @@ const Local = (function () {
     let p = G.players[G.turn];
     if (!p || G.phase === 'reveal' || G.handoff) { msg.innerHTML = '&nbsp;'; return; }
     if (!myTurn()) { msg.innerHTML = `<span class="hl">${esc(p.name)}</span> <span class="dim thinking">is thinking</span>`; return; }
-    if (G.phase === 'play') {
+    if (G.phase === 'play' && G.matchMode) {
+      let top = G.discard[G.discard.length - 1];
+      msg.innerHTML = `Tap the card in your hand that matches the <span class="hl">${esc(top.rank)}</span>. <span class="dim">Wrong = penalty card.</span>`;
+      br.appendChild(mkBtn('Cancel', 'ab', () => { G.matchMode = false; render(); }));
+    } else if (G.phase === 'play') {
       let x = G.caboBy !== -1 ? ' <span class="dim">· Last turn!</span>' : '';
       let m = isMemorizing() && !Settings.get('memoryAid') ? '<span class="hl">Memorize your cards!</span> Then d' : 'D';
       msg.innerHTML = `${m}raw from <span class="hl">deck</span> or take top <span class="hl">discard</span>.${x}`;
+      let top = G.discard[G.discard.length - 1];
+      if (top && !G.matchBlocked) {
+        let b = mkBtn(`🎯 I have a ${top.rank === 'JOKER' ? 'Joker' : top.rank} — Match`, 'ab match-btn', () => { G.matchMode = true; render(); });
+        b.title = 'Throw a card of the same rank from your hand onto the pile. Wrong guess = penalty card.';
+        br.appendChild(b);
+      }
     }
-    if (G.phase === 'drawn') msg.innerHTML = `<span class="hl">Drawn card shown above</span> — Discard, Swap, or use Special.`;
+    if (G.phase === 'drawn') {
+      msg.innerHTML = G.drawnFromDiscard
+        ? `You took the <span class="hl">${esc(G.drawnCard.rank)}</span> — tap one of your cards to swap it in.`
+        : `You drew a <span class="hl">${esc(G.drawnCard.rank === 'JOKER' ? 'Joker' : G.drawnCard.rank)}</span>. What do you want to do?`;
+      br.appendChild(drawnActions({ card: G.drawnCard, fromDiscard: G.drawnFromDiscard, onDiscard: doDiscardDrawn, onPower: useSpecial }));
+    }
     if (G.phase === 'spec-peek-own') {
       msg.innerHTML = `Click one of <span class="hl">your cards</span> to peek.`;
       br.appendChild(mkBtn('Cancel', 'ab', cancelSpec));
@@ -295,10 +304,7 @@ const Local = (function () {
       msg.innerHTML = `Now click an <span class="hl">opponent's card</span> to complete the swap.`;
       br.appendChild(mkBtn('Cancel', 'ab', cancelSpec));
     }
-    if (G.phase === 'match-pick') {
-      msg.innerHTML = `<span class="hl">Match bonus!</span> Click one of your cards to discard it free.`;
-      br.appendChild(mkBtn('Skip', 'ab', () => { G.log = 'Match bonus skipped.'; endTurn(); }));
-    }
+
   }
 
   // ── deck helpers ──
@@ -321,33 +327,56 @@ const Local = (function () {
   function drawDeck() {
     if (!ensureDeck()) { bnr('Deck empty!', 'warn'); return; }
     queueFly('dz-top', rectOf('deck-top'), { flip: true });
-    G.drawnCard = G.deck.pop(); G.phase = 'drawn'; sfx('draw'); render();
+    G.matchMode = false;
+    G.drawnCard = G.deck.pop(); G.drawnFromDiscard = false; G.phase = 'drawn'; sfx('draw'); render();
   }
   function drawDiscard() {
     if (!G.discard.length) return;
     queueFly('dz-top', rectOf('disc-top'));
-    G.drawnCard = G.discard.pop(); G.phase = 'drawn'; sfx('draw'); render();
+    G.matchMode = false;
+    G.drawnCard = G.discard.pop(); G.drawnFromDiscard = true; G.phase = 'drawn'; sfx('draw'); render();
   }
   function doDiscardDrawn() {
+    if (G.drawnFromDiscard) return;
     let card = G.drawnCard;
     discardDrawnCard(); sfx('discard');
     G.log = `${G.players[G.turn].name} discarded ${card.rank}${card.suit}.`;
-    if (!checkMatch(card)) endTurn(); else render();
+    endTurn();
   }
-  function checkMatch(card) {
-    if (G.discard.length < 2 || G.players[G.turn].matchUsed) return false;
-    let prev = G.discard[G.discard.length - 2];
-    if (prev && prev.rank === card.rank) {
-      G.phase = 'match-pick';
-      if (G.players[G.turn].isHuman) { bnr('Match! Discard a card for free!', 'good'); sfx('match'); }
+  // Match rule: before drawing, throw a same-rank card from your hand onto
+  // the pile. Wrong guess: card is shown, stays, and you take a penalty card.
+  function doMatch(seat, idx) {
+    let p = G.players[seat];
+    let top = G.discard[G.discard.length - 1];
+    let c = p.cards[idx];
+    G.matchMode = false;
+    if (c.rank === top.rank) {
+      queueFly('disc-top', rectOf(slotId(seat, idx)));
+      p.cards.splice(idx, 1);
+      G.discard.push({ rank: c.rank, suit: c.suit });
+      setAct(seat, `Matched a ${c.rank} — threw away card ${idx + 1}`);
+      G.log = `${p.name} matched a ${c.rank}!`;
+      bnr(`${p.name === C.name && seat === 0 ? 'Match!' : p.name + ' matched a ' + c.rank + '!'}`, 'good'); sfx('match');
+      render();
       return true;
     }
+    c.known = true;
+    G.matchBlocked = true;
+    if (ensureDeck()) {
+      p.cards.push({ ...G.deck.pop(), known: false, aiKnown: false });
+      queueFly(slotId(seat, p.cards.length - 1), rectOf('deck-top'), { flip: true });
+    }
+    setAct(seat, `Wrong match (${c.rank}${c.suit}) — took a penalty card`);
+    G.log = `${p.name} tried to match a ${c.rank} on a ${top.rank} — penalty card!`;
+    bnr(G.log, 'warn');
+    flashCard(seat, idx, 'reveal', 'Not a match!');
     return false;
   }
   function youClick(idx) {
     if (!myTurn()) return;
     let v = viewer();
     let p = G.players[v];
+    if (G.phase === 'play' && G.matchMode) { doMatch(v, idx); return; }
     if (G.phase === 'drawn') {
       queueFly(slotId(v, idx), rectOf('dz-top'));
       queueFly('disc-top', rectOf(slotId(v, idx)));
@@ -355,7 +384,7 @@ const Local = (function () {
       p.cards[idx] = { ...G.drawnCard, known: true };
       G.discard.push(old); G.drawnCard = null; sfx('swap');
       G.log = `${p.name} swapped card ${idx + 1}.`;
-      if (!checkMatch(old)) endTurn(); else render();
+      endTurn();
       return;
     }
     if (G.phase === 'spec-peek-own') {
@@ -370,13 +399,6 @@ const Local = (function () {
       G.swapPick1 = { owner: v, idx };
       if (G.swapSeen) bnr(`Your card ${idx + 1}: ${p.cards[idx].rank}${p.cards[idx].suit}`, 'info');
       G.phase = 'spec-swap2'; render(); return;
-    }
-    if (G.phase === 'match-pick') {
-      queueFly('disc-top', rectOf(slotId(v, idx)));
-      let disc = p.cards.splice(idx, 1)[0];
-      G.discard.push(disc); p.matchUsed = true; sfx('discard');
-      bnr('Match bonus used!', 'good'); G.log = `${p.name} discarded card ${idx + 1} as bonus.`;
-      endTurn(); return;
     }
   }
   function oppClick(oi, idx) {
@@ -404,6 +426,7 @@ const Local = (function () {
     }
   }
   function useSpecial() {
+    if (G.drawnFromDiscard) return;
     let r = G.drawnCard.rank;
     if (r === '7' || r === '8') { G.phase = 'spec-peek-own'; render(); return; }
     if (r === '9' || r === '10') {
@@ -435,7 +458,7 @@ const Local = (function () {
   function endTurn() {
     if (G.phase === 'reveal') return;
     G.drawnCard = null; G.swapPick1 = null; G.swapSeen = false; G.peekOppWho = null; G.phase = 'play';
-    G.drawnFromDiscard = false;
+    G.drawnFromDiscard = false; G.matchMode = false; G.matchBlocked = false;
     G.turnsTaken++;
     let n = G.players.length, cabo = G.caboBy !== -1;
     if (cabo) G.finalPending = G.finalPending.filter((s) => s !== G.turn);
@@ -495,8 +518,15 @@ const Local = (function () {
       bnr(`${ai.name} calls CABO!`, 'cabo'); sfx('cabo'); G.log = `${ai.name} called Cabo!`;
       endTurn(); return;
     }
-    let { worst, worstV } = aiWorst(ai);
     let top = G.discard[G.discard.length - 1];
+    // match a known card of the same rank before drawing
+    let mi = top && C.diff !== 'easy' && !G.matchBlocked ? ai.cards.findIndex((c) => c.aiKnown && c.rank === top.rank) : -1;
+    if (mi !== -1) {
+      doMatch(ai_i, mi);
+      setTimeout(aiTurn, 1100);
+      return;
+    }
+    let { worst, worstV } = aiWorst(ai);
     // grab a low discard if it clearly improves a known card
     let takeDiscard = top && C.diff !== 'easy' && worst !== -1 && cv(top.rank) <= 3 && worstV > cv(top.rank) + 2;
     if (takeDiscard) {
@@ -545,21 +575,6 @@ const Local = (function () {
       G.log = `${ai.name} discarded ${drawn.rank}${drawn.suit}.`; sfx('discard');
     }
     G.drawnCard = null;
-    if (checkMatch(discarded)) {
-      let w = aiWorst(ai);
-      if (w.worst !== -1 && w.worstV > 3) {
-        render();
-        if (tgt !== -1) flashSwapGlow(slotId(ai_i, tgt));
-        setTimeout(() => {
-          queueFly('disc-top', rectOf(slotId(ai_i, w.worst)));
-          G.discard.push(ai.cards.splice(w.worst, 1)[0]); ai.matchUsed = true;
-          setAct(ai_i, `Match bonus: threw away card ${w.worst + 1}`);
-          bnr(`${ai.name} used the match bonus!`, 'good');
-          endTurn();
-        }, 900);
-        return;
-      }
-    }
     endTurn();
     if (tgt !== -1) flashSwapGlow(slotId(ai_i, tgt));
   }
@@ -711,6 +726,7 @@ const Local = (function () {
     setTimeout(() => showRoundResult({
       names: G.players.map((p) => p.name), roundScores: scores.map((x) => x.s), totals: TOTALS.slice(),
       winners, caboBy: G.caboBy, caboLost, resets, gameOver, you: viewer(),
+      hands: G.players.map((p) => p.cards.map((c) => ({ rank: c.rank, suit: c.suit }))), target: TARGET,
     }, gameOver
       ? [{ t: 'New Game', c: 'ab pri', fn: () => { closeOv(); TOTALS = Array(C.np).fill(0); G.round = 1; initRound(); } },
          { t: 'Main Menu', c: 'ab', fn: toMenu }]

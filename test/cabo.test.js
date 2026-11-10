@@ -65,3 +65,45 @@ test('views never leak hidden cards', () => {
   assert.ok(v.players[1].cards.every((c) => !c.known && c.rank === undefined));
   assert.ok(v.players[0].cards[2].rank === undefined);
 });
+
+test('correct match throws your card on the pile and lets you keep playing', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7', '♥')];
+  g.players[0].cards = [card('7', '♠'), card('3'), card('K')];
+  const r = applyAction(g, 0, 'match', { idx: 0 });
+  assert.ok(r.ok && r.matched);
+  assert.strictEqual(g.players[0].cards.length, 2);
+  assert.strictEqual(g.discard[g.discard.length - 1].rank, '7');
+  assert.strictEqual(g.turn, 0);
+  assert.strictEqual(g.phase, 'play');
+  assert.ok(applyAction(g, 0, 'draw_deck').ok, 'can still draw after matching');
+});
+
+test('wrong match: card stays, penalty card added, no second attempt', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7')];
+  g.players[0].cards = [card('5'), card('7'), card('K'), card('2')];
+  const r = applyAction(g, 0, 'match', { idx: 0 });
+  assert.ok(r.ok && r.matched === false);
+  assert.strictEqual(g.players[0].cards.length, 5);
+  assert.strictEqual(g.players[0].cards[0].rank, '5');
+  assert.strictEqual(applyAction(g, 0, 'match', { idx: 1 }).ok, false);
+});
+
+test('cannot match after drawing', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7')];
+  g.players[0].cards = [card('7')];
+  applyAction(g, 0, 'draw_deck');
+  assert.strictEqual(applyAction(g, 0, 'match', { idx: 0 }).ok, false);
+});
+
+test('a card taken from the discard pile has no power and must be swapped in', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('Q')];
+  assert.ok(applyAction(g, 0, 'draw_discard').ok);
+  assert.strictEqual(applyAction(g, 0, 'use_special').ok, false);
+  assert.strictEqual(applyAction(g, 0, 'discard_drawn').ok, false);
+  assert.ok(applyAction(g, 0, 'swap_card', { idx: 2 }).ok);
+  assert.strictEqual(g.turn, 1);
+});

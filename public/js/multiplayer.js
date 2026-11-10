@@ -15,6 +15,7 @@ const MP = (function () {
   let pendingMoves = [];
   let countdownT = null;
   let lastCueKey = null;
+  let matchMode = false;
 
   function ensureSocket() {
     if (socket) return;
@@ -147,6 +148,7 @@ const MP = (function () {
       if (f.kind === 'peek' && f.by === session.seat) return;
       if (f.kind === 'peek') flashPeekBlur(`card-${f.seat}-${f.idx}`, null, f.label, () => {});
       if (f.kind === 'swap') flashSwapGlow(`card-${f.seat}-${f.idx}`);
+      if (f.kind === 'reveal') flashPeekReveal(`card-${f.seat}-${f.idx}`, { rank: f.rank, suit: f.suit }, f.label, () => {});
     });
   }
 
@@ -165,6 +167,7 @@ const MP = (function () {
   }
 
   function onGameState(view) {
+    if (!view.canMatch) matchMode = false;
     let gid = view.gameId || ('r' + view.round);
     let newHand = gid !== currentGameId;
     currentGameId = gid;
@@ -276,7 +279,7 @@ const MP = (function () {
         if (view.phase === 'spec-peek-own') { clickable = true; hl = 'peek'; }
         if (view.phase === 'spec-swap1') { clickable = true; hl = 'swap'; }
         if (view.phase === 'spec-swap2' && view.swapPick1 && view.swapPick1.idx === idx) sel = true;
-        if (view.phase === 'match-pick') { clickable = true; hl = 'discard'; }
+        if (view.phase === 'play' && matchMode && view.canMatch) { clickable = true; hl = 'discard'; }
       }
       const w = document.createElement('div'); w.className = 'cwrap';
       const card = mkCard(faceUp ? c : { rank: '?', suit: '' }, faceUp, { clickable, hl, sel, knownG: c.known && aid && view.phase !== 'reveal' });
@@ -327,14 +330,8 @@ const MP = (function () {
       dz.classList.add('active');
       const card = mkCard(view.drawnCard, true);
       card.id = 'dz-top';
+      powerBadge(card, view.drawnCard.rank, view.drawnFromDiscard);
       dzCard.appendChild(card);
-      if (view.phase === 'drawn') {
-        dzActs.appendChild(mkBtn('Discard', 'ab dng', () => action('discard_drawn')));
-        const sw = mkBtn('Swap a Card', 'ab pri', () => setMsg('Click <span class="hl">one of your cards</span> (blue glow) to swap it out.'));
-        sw.title = 'Click one of your cards to replace it with the drawn card';
-        dzActs.appendChild(sw);
-        if (isSpec(view.drawnCard.rank)) { const b = mkBtn(specLbl(view.drawnCard.rank), 'ab sec', () => action('use_special')); b.title = specDesc(view.drawnCard.rank); dzActs.appendChild(b); }
-      }
     } else {
       dz.classList.remove('active');
       dzCard.innerHTML = '<div class="dz-empty" id="dz-top">+</div>';
@@ -363,12 +360,26 @@ const MP = (function () {
     const turnP = view.players[view.turn];
     const timer = '<span class="dim" id="turn-timer"></span>';
     if (view.turn !== view.you) { msg.innerHTML = `<span class="hl">${esc(turnP.name)}</span> <span class="dim thinking">is thinking</span>${timer}`; return; }
-    if (view.phase === 'play') {
+    if (view.phase === 'play' && matchMode && view.canMatch) {
+      msg.innerHTML = `Tap the card in your hand that matches the <span class="hl">${esc(view.discardTop.rank)}</span>. <span class="dim">Wrong = penalty card.</span>${timer}`;
+      br.appendChild(mkBtn('Cancel', 'ab', () => { matchMode = false; renderGame(view); }));
+    } else if (view.phase === 'play') {
       const x = view.caboBy !== -1 && view.caboBy !== view.turn ? ' <span class="dim">· Last turn!</span>' : '';
       const m = Date.now() < memorizeUntil && !Settings.get('memoryAid') ? '<span class="hl">Memorize your cards!</span> Then d' : 'D';
       msg.innerHTML = `${m}raw from <span class="hl">deck</span> or take top <span class="hl">discard</span>.${x}${timer}`;
+      if (view.canMatch && view.discardTop) {
+        const r = view.discardTop.rank === 'JOKER' ? 'Joker' : view.discardTop.rank;
+        const b = mkBtn(`🎯 I have a ${r} — Match`, 'ab match-btn', () => { matchMode = true; renderGame(view); });
+        b.title = 'Throw a card of the same rank from your hand onto the pile. Wrong guess = penalty card.';
+        br.appendChild(b);
+      }
     }
-    if (view.phase === 'drawn') msg.innerHTML = `<span class="hl">Drawn card shown above</span> — Discard, Swap, or use Special.`;
+    if (view.phase === 'drawn' && view.drawnCard) {
+      msg.innerHTML = view.drawnFromDiscard
+        ? `You took the <span class="hl">${esc(view.drawnCard.rank)}</span> — tap one of your cards to swap it in.${timer}`
+        : `You drew a <span class="hl">${esc(view.drawnCard.rank === 'JOKER' ? 'Joker' : view.drawnCard.rank)}</span>. What do you want to do?${timer}`;
+      br.appendChild(drawnActions({ card: view.drawnCard, fromDiscard: !!view.drawnFromDiscard, onDiscard: () => action('discard_drawn'), onPower: () => action('use_special') }));
+    }
     if (view.phase === 'spec-peek-own') {
       msg.innerHTML = `Click one of <span class="hl">your cards</span> to peek.`;
       br.appendChild(mkBtn('Cancel', 'ab', () => action('cancel_special')));
@@ -390,10 +401,7 @@ const MP = (function () {
       msg.innerHTML = `Now click an <span class="hl">opponent's card</span> to complete the swap.`;
       br.appendChild(mkBtn('Cancel', 'ab', () => action('cancel_special')));
     }
-    if (view.phase === 'match-pick') {
-      msg.innerHTML = `<span class="hl">Match bonus!</span> Click one of your cards to discard it free.`;
-      br.appendChild(mkBtn('Skip', 'ab', () => action('match_skip')));
-    }
+
   }
 
   function youClick(idx, view) {
@@ -401,7 +409,7 @@ const MP = (function () {
     if (view.phase === 'drawn') return action('swap_card', { idx });
     if (view.phase === 'spec-peek-own') return action('peek_own', { idx });
     if (view.phase === 'spec-swap1') return action('swap_pick1', { idx });
-    if (view.phase === 'match-pick') return action('match_pick', { idx });
+    if (view.phase === 'play' && matchMode) { matchMode = false; return action('match', { idx }); }
   }
   function oppClick(oppSeat, idx, view) {
     if (view.turn !== view.you) return;
@@ -451,6 +459,8 @@ const MP = (function () {
       totals: prevTotals.map((t) => t || 0),
       winners, caboBy: view.caboBy, caboLost: view.caboLost,
       resets: [], gameOver: !!view.gameOver, you: view.you,
+      hands: view.players.map((p) => p.cards.filter((c) => c.known).map((c) => ({ rank: c.rank, suit: c.suit }))),
+      target: view.targetScore || 100,
     }, btns);
   }
 
