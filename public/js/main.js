@@ -10,18 +10,30 @@ const Screens = {
 
 let ActiveGame = Local; // Local or MP — whichever is currently driving #game
 
+// Home screen panels: 'home' (mode cards), 'solo' / 'pass' (local setup), 'online'.
+function showPanel(which) {
+  const local = which === 'solo' || which === 'pass';
+  document.getElementById('home-panel').style.display = which === 'home' ? '' : 'none';
+  document.getElementById('local-panel').style.display = local ? 'block' : 'none';
+  document.getElementById('online-panel').style.display = which === 'online' ? 'block' : 'none';
+  if (local) {
+    Local.setMode(which);
+    document.getElementById('local-title').textContent = which === 'solo' ? 'Play vs Computer' : 'Pass & Play';
+    document.getElementById('np-lbl').textContent = which === 'solo' ? 'PLAYERS (YOU + AI)' : 'PLAYERS ON THIS DEVICE';
+    document.getElementById('diff-row').style.display = which === 'solo' ? '' : 'none';
+  }
+  if (which === 'online') { MP.ensureSocket(); MP.refreshRoomsList(); }
+  const setup = document.getElementById('setup');
+  if (setup) setup.scrollTop = 0;
+}
+
 document.addEventListener('DOMContentLoaded', () => {
-  // play mode tabs
-  document.querySelectorAll('#playmode-seg .sb').forEach((btn) => {
-    btn.addEventListener('click', () => {
-      document.querySelectorAll('#playmode-seg .sb').forEach((b) => b.classList.remove('on'));
-      btn.classList.add('on');
-      const mode = btn.dataset.playmode;
-      document.getElementById('local-panel').style.display = mode === 'local' ? 'block' : 'none';
-      document.getElementById('online-panel').style.display = mode === 'online' ? 'block' : 'none';
-      if (mode === 'online') { MP.ensureSocket(); MP.refreshRoomsList(); }
-    });
-  });
+  // home: pick a way to play → its setup panel; Back returns home
+  document.querySelectorAll('.mode-card').forEach((btn) => btn.addEventListener('click', () => showPanel(btn.dataset.go)));
+  document.querySelectorAll('[data-back]').forEach((btn) => btn.addEventListener('click', () => showPanel('home')));
+  // Rules sheet: available on the home screen, in every setup panel, and in-game
+  document.querySelectorAll('[data-rules]').forEach((el) => el.addEventListener('click', () =>
+    openRules({ inGame: !!el.closest('#game') })));
 
   // local setup segmented controls
   document.querySelectorAll('#local-panel .seg .sb').forEach((btn) => {
@@ -35,11 +47,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const howto = document.getElementById('howto-btn');
   if (!Settings.get('tutDone')) howto.classList.add('fresh');
   howto.addEventListener('click', () => { howto.classList.remove('fresh'); Tutorial.open(); });
-  document.getElementById('rules-toggle').addEventListener('click', () => {
-    const drop = document.getElementById('rules-drop');
-    drop.classList.toggle('open');
-    document.getElementById('rules-toggle').textContent = drop.classList.contains('open') ? '▾ Hide Rules' : '▸ Show Rules';
-  });
 
   // online setup
   document.querySelectorAll('#mp-np-seg .sb').forEach((btn) => {
@@ -83,7 +90,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // invite links: ?room=CODE opens the Online tab with the code filled in
   const inviteCode = new URLSearchParams(location.search).get('room');
   if (inviteCode && !sessionStorage.getItem('cabo_mp_session')) {
-    document.querySelector('#playmode-seg [data-playmode="online"]').click();
+    showPanel('online');
     document.getElementById('mp-code').value = inviteCode.toUpperCase().slice(0, 4);
     document.getElementById('mp-name').focus();
   }

@@ -752,7 +752,7 @@ const Tutorial = (() => {
       [{ t: 'Play a real game ▶', v: 'play' }, { t: 'Practice again', v: 'again', c: 'ab' }, { t: 'Menu', v: 'menu', c: 'ab' }]
     );
     if (!alive(t)) return;
-    if (res === 'play') { close(); ActiveGame = Local; Local.startGame(); }
+    if (res === 'play') { close(); showPanel('solo'); ActiveGame = Local; Local.startGame(); }
     else if (res === 'again') startPractice();
     else close();
   }

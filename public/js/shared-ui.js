@@ -328,3 +328,65 @@ function revealAnimation(){
   return cards.length*90+500;
 }
 function setMsg(h){document.getElementById('amsg').innerHTML=h;}
+
+// ── Rules sheet (home screen + in-game) ──
+// One reference for every rule, split into short sections with a jump bar,
+// plus tips for making decisions. Opening it never touches game state.
+function rulesHTML(){
+  const m=(r,s)=>`<span class="mini ${r==='JOKER'?'jk':RED.has(s)?'rd':''}">${r==='JOKER'?'🃏':r+s}</span>`;
+  const sec=(id,ic,title,body)=>`<section class="rs-sec" id="rs-${id}"><h3><span>${ic}</span>${title}</h3>${body}</section>`;
+  return [
+    sec('goal','🎯','The goal',`<p>Have the <b>lowest total</b> of card points when the round ends. You won't see most of your cards, so remember what you've peeked at.</p>`),
+    sec('values','🃏','Card values',`<div class="rs-vals">
+      <div>${m('JOKER','★')}<b class="g">−2</b></div><div>${m('K','♠')}<b class="g">0</b></div><div>${m('A','♥')}<b class="g">1</b></div>
+      <div>${m('2','♣')}…${m('10','♦')}<b>face</b></div><div>${m('J','♣')}<b class="r">11</b></div><div>${m('Q','♥')}<b class="r">12</b></div></div>`),
+    sec('start','👀','Start of a round',`<p>Everyone gets <b>4 cards face down</b> in a 2×2 grid. You peek at your <b>2 nearest cards</b> for a few seconds — then they're hidden and you play from memory.</p><p class="rs-dim">Menu → Memory aid keeps your known cards visible if you prefer.</p>`),
+    sec('turn','🔄','Your turn',`<ol>
+      <li><b>Draw</b> the top card of the deck, <i>or</i> take the top card of the discard pile.</li>
+      <li><b>Keep it</b> — tap a card in your hand to swap; your old card goes face up on the discard pile.</li>
+      <li><i>Or</i> <b>discard it</b> (deck draws only). A card taken from the discard pile <b>must</b> be swapped in.</li></ol>`),
+    sec('powers','✨','Power cards',`<p>When you draw <b>7 – K from the deck</b>, you may discard it to use its power. Discard-pile cards and matched cards have <b>no power</b>.</p>
+      <div class="rs-pw"><div>${m('7','♠')}${m('8','♥')}<span><b>👁 Peek</b> — look at one of your cards</span></div>
+      <div>${m('9','♣')}${m('10','♦')}<span><b>🔍 Spy</b> — look at one opponent card</span></div>
+      <div>${m('J','♠')}<span><b>⏭ Skip</b> — next player misses a turn</span></div>
+      <div>${m('Q','♦')}<span><b>🔀 Blind swap</b> — swap one of yours with an opponent's, no looking</span></div>
+      <div>${m('K','♣')}<span><b>👑 Seen swap</b> — look at one of yours, then swap it with an opponent's</span></div></div>`),
+    sec('match','⇣','Matching',`<p>At the <b>start of your turn, before drawing</b>, tap <b>Match</b> and throw a card with the <b>same rank</b> as the discard top.</p>
+      <ul><li><b>Right:</b> it leaves your hand — one fewer card. You can try again.</li><li><b>Wrong:</b> the card is shown to everyone, stays in your hand, and you take a <b>penalty card</b>. No more tries this turn.</li></ul>`),
+    sec('cabo','📣','Calling Cabo',`<p>Once everyone has had a turn, you can call <b>CABO</b> at the start of your turn instead of playing. Everyone else gets <b>one final turn</b>, then all cards are revealed.</p>
+      <ul><li>Lowest hand wins the round (ties share it).</li><li>If you called Cabo and someone is <b>lower than you</b>: <b>+5 penalty</b>.</li></ul>`),
+    sec('score','🏁','Scoring & winning',`<ul><li>Your hand's points are added to your <b>total</b> each round.</li><li>When anyone goes <b>past 100</b>, the game ends — <b>lowest total wins</b>.</li><li>Land on <b>exactly 100</b> and you reset to <b>50</b>.</li><li>If the deck runs out, the discard pile is reshuffled.</li></ul>`),
+    sec('tips','💡','Decision tips',`<ul>
+      <li><b>Drew a 0–4?</b> Usually keep it — swap out your highest known card, or an unknown one.</li>
+      <li><b>Drew a 9+ with no use?</b> Discard it.</li>
+      <li><b>Lots of unknown cards?</b> Use 7/8 peeks — knowledge wins rounds.</li>
+      <li><b>Know an opponent has a K or Joker?</b> A Queen or King swap can steal it.</li>
+      <li><b>Watch the discard pile</b> — every matching rank you hold is a free card to dump.</li>
+      <li><b>Call Cabo</b> when you're fairly sure your total is about <b>5 or less</b>, or clearly below what others likely hold.</li></ul>`),
+  ].join('');
+}
+function openRules(opts={}){
+  let el=document.getElementById('rules-sheet');
+  if(!el)return;
+  const jumps=[['goal','Goal'],['values','Values'],['turn','Turn'],['powers','Powers'],['match','Match'],['cabo','Cabo'],['score','Scoring'],['tips','Tips']];
+  el.innerHTML=`<div class="rs-panel">
+    <div class="rs-head"><div class="rs-title">📖 Rules</div><button class="rs-x" aria-label="Close rules">✕</button></div>
+    <div class="rs-jump">${jumps.map(([id,t])=>`<button data-j="${id}">${t}</button>`).join('')}</div>
+    <div class="rs-body">${rulesHTML()}</div>
+    <div class="rs-foot">${opts.inGame?'':'<button class="ab sec" id="rs-lessons">▶ Watch the lessons</button>'}<button class="ab pri" id="rs-done">${opts.inGame?'Back to game':'Got it'}</button></div>
+  </div>`;
+  const body=el.querySelector('.rs-body');
+  el.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>{
+    const t=body.querySelector('#rs-'+b.dataset.j);
+    if(t)body.scrollTo({top:t.offsetTop-body.offsetTop-4,behavior:REDUCED_MOTION?'auto':'smooth'});
+  });
+  el.querySelector('.rs-x').onclick=closeRules;
+  el.querySelector('#rs-done').onclick=closeRules;
+  const les=el.querySelector('#rs-lessons');
+  if(les)les.onclick=()=>{closeRules();if(typeof Tutorial!=='undefined')Tutorial.open();};
+  el.onclick=e=>{if(e.target===el)closeRules();};
+  el.classList.add('show');
+  el.querySelector('.rs-x').focus();
+}
+function closeRules(){let el=document.getElementById('rules-sheet');if(el)el.classList.remove('show');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeRules();});

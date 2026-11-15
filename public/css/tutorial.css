@@ -142,13 +142,6 @@ button.tut-target{box-shadow:0 0 0 2px rgba(240,192,96,.9),0 0 24px rgba(240,192
 @keyframes tut-tap{0%,100%{transform:translate(0,0)}50%{transform:translate(-4px,-8px)}}
 .tut-nudge{animation:nudge .45s ease 2!important}
 
-/* setup-screen entry button */
-.howto-btn{display:flex;align-items:center;gap:.6rem;margin:-0.8rem 0 1.1rem;padding:.55rem 1.1rem .55rem .7rem;border-radius:24px;border:1px solid rgba(212,168,67,.45);background:rgba(212,168,67,.1);color:#f0d98c;font-family:'DM Sans',sans-serif;font-size:.8rem;cursor:pointer;transition:all .2s}
-.howto-btn:hover{background:rgba(212,168,67,.2);transform:translateY(-1px)}
-.howto-btn .hb-ic{width:1.7rem;height:1.7rem;border-radius:50%;background:var(--gold);color:#111;display:flex;align-items:center;justify-content:center;font-size:.7rem}
-.howto-btn small{color:#9a8e7a;font-size:.68rem}
-.howto-btn.fresh{animation:next-glow 1.4s ease-in-out infinite alternate}
-
 @media (max-width:520px){
   #tutorial{padding:.45rem .55rem .6rem;--cw:clamp(42px,min(17vw,8.2vh),80px)}
   .tut-brand{display:none}
