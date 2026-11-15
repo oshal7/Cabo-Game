@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CABO — The Card Game</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="css/style.css?v=7"/>
+<link rel="stylesheet" href="css/style.css?v=8"/>
+<link rel="stylesheet" href="css/tutorial.css?v=8"/>
 </head>
 <body>
 <div id="scale-root">
@@ -15,17 +16,22 @@
   <div class="logo">CABO</div>
   <div class="logo-sub">THE CARD GAME</div>
 
-  <div class="sbox">
-    <div class="slbl">PLAY MODE</div>
-    <div class="seg" id="playmode-seg">
-      <button class="sb on" data-playmode="local">Local</button>
-      <button class="sb" data-playmode="online">Online</button>
+  <!-- HOME: pick how to play, or learn -->
+  <div class="home" id="home-panel">
+    <div class="home-q">How do you want to play?</div>
+    <button class="mode-card" data-go="solo"><span class="mc-ic">🤖</span><span class="mc-txt"><b>Play vs Computer</b><small>You against 1–3 AI players</small></span><span class="mc-go">›</span></button>
+    <button class="mode-card" data-go="pass"><span class="mc-ic">👥</span><span class="mc-txt"><b>Pass &amp; Play</b><small>Friends on one device, taking turns</small></span><span class="mc-go">›</span></button>
+    <button class="mode-card" data-go="online"><span class="mc-ic">🌐</span><span class="mc-txt"><b>Play with Friends Online</b><small>Create a room or join with a code</small></span><span class="mc-go">›</span></button>
+    <div class="home-learn">
+      <button class="learn-card" id="howto-btn"><span class="lc-ic">▶</span><span class="mc-txt"><b>How to Play</b><small>2-min lessons + practice</small></span></button>
+      <button class="learn-card" data-rules><span class="lc-ic rb">📖</span><span class="mc-txt"><b>Rules</b><small>Quick reference</small></span></button>
     </div>
   </div>
 
-  <!-- LOCAL PANEL -->
-  <div class="sbox" id="local-panel" style="margin-top:.7rem">
-    <div class="slbl">PLAYERS</div>
+  <!-- LOCAL PANEL (vs Computer / Pass & Play) -->
+  <div class="sbox" id="local-panel" style="display:none">
+    <div class="panel-head"><button class="back-btn" data-back>‹ Back</button><div class="panel-title" id="local-title">Play vs Computer</div></div>
+    <div class="slbl" id="np-lbl">PLAYERS</div>
     <div class="seg" id="np-seg">
       <button class="sb" data-seg="np" data-val="2">2</button>
       <button class="sb on" data-seg="np" data-val="3">3</button>
@@ -33,34 +39,21 @@
     </div>
     <div class="slbl">YOUR NAME</div>
     <input id="pname" type="text" value="You" maxlength="12"/>
-    <div class="slbl">MODE</div>
-    <div class="seg" id="mode-seg">
-      <button class="sb on" data-seg="mode" data-val="solo">vs AI</button>
-      <button class="sb" data-seg="mode" data-val="pass">Pass &amp; Play</button>
-    </div>
-    <div class="slbl">AI DIFFICULTY</div>
-    <div class="seg" id="diff-seg">
-      <button class="sb" data-seg="diff" data-val="easy">Easy</button>
-      <button class="sb on" data-seg="diff" data-val="med">Medium</button>
-      <button class="sb" data-seg="diff" data-val="hard">Hard</button>
+    <div id="diff-row">
+      <div class="slbl">AI DIFFICULTY</div>
+      <div class="seg" id="diff-seg">
+        <button class="sb" data-seg="diff" data-val="easy">Easy</button>
+        <button class="sb on" data-seg="diff" data-val="med">Medium</button>
+        <button class="sb" data-seg="diff" data-val="hard">Hard</button>
+      </div>
     </div>
     <button class="deal-btn" id="deal-btn">DEAL CARDS</button>
-    <div class="rl" id="rules-toggle">▸ Show Rules</div>
-    <div class="rdrop" id="rules-drop">
-      <b>Values:</b> A=1 · 2–Q=face · K=0 · Joker=−2<br>
-      <b>7/8</b> Peek one of your own cards &nbsp;<b>9/10</b> Peek an opponent's card<br>
-      <b>J</b> Skip next player's turn &nbsp;<b>Q</b> Blind swap &nbsp;<b>K</b> Seen swap<br>
-      <b>Match:</b> Only on your turn, before drawing: tap <b>Match</b> and throw a card of the same rank as the discard top. One match per turn, and each discarded card can be matched by only one player. Right = it leaves your hand. Wrong = it's shown and you take a penalty card. Matches have no power.<br>
-      <b>Turn timer:</b> 45s per turn — when it runs out the game draws and discards for you.<br>
-      <b>Discard pile:</b> A card you take from the discard pile has no power — you must swap it into your hand.<br>
-      <b>Memory:</b> You see your first two cards for a few seconds at the start — then remember them! (Menu → Memory aid keeps them visible.)<br>
-      <b>Cabo:</b> Call on your turn (after everyone has played once). Everyone else gets one final turn. Lowest wins. Wrong Cabo = +5 penalty.<br>
-      <b>Game:</b> Totals add up each round. Past 100 ends the game; exactly 100 resets to 50. Lowest total wins.
-    </div>
+    <div class="rl" data-rules>📖 Rules</div>
   </div>
 
   <!-- ONLINE PANEL -->
-  <div class="sbox" id="online-panel" style="display:none;margin-top:.7rem">
+  <div class="sbox" id="online-panel" style="display:none">
+    <div class="panel-head"><button class="back-btn" data-back>‹ Back</button><div class="panel-title">Play with Friends Online</div></div>
     <div class="slbl">YOUR NAME</div>
     <input id="mp-name" type="text" maxlength="16" placeholder="Your name"/>
 
@@ -81,8 +74,12 @@
     <div class="mp-rooms" id="mp-rooms-list"><div class="mp-empty">No open rooms right now.</div></div>
 
     <div class="mp-err" id="mp-err"></div>
+    <div class="rl" data-rules>📖 Rules</div>
   </div>
 </div>
+
+<!-- HOW TO PLAY (built by tutorial.js) -->
+<div id="tutorial"></div>
 
 <!-- MULTIPLAYER WAITING ROOM -->
 <div id="mp-room">
@@ -108,6 +105,7 @@
     <div class="rbadge" id="rbadge">ROUND 1</div>
     <div class="tr">
       <button class="sc-toggle" id="sound-btn" aria-label="Mute sound">🔊</button>
+      <button class="sc-toggle rules-tg" data-rules aria-label="Rules">📖<span class="rt-txt"> Rules</span></button>
       <button class="sc-toggle" id="scores-btn">Scores</button>
       <button class="mbtn" id="menu-btn">≡ Menu</button>
     </div>
@@ -155,14 +153,18 @@
   </div>
 </div>
 
+<!-- RULES SHEET (home + in-game; built by rulesSheet() in shared-ui.js) -->
+<div id="rules-sheet" role="dialog" aria-modal="true" aria-label="Rules"></div>
+
 </div><!-- /scale-root -->
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="js/config.js?v=7"></script>
-<script src="js/shared-ui.js?v=7"></script>
-<script src="js/fx.js?v=7"></script>
-<script src="js/local-game.js?v=7"></script>
-<script src="js/multiplayer.js?v=7"></script>
-<script src="js/main.js?v=7"></script>
+<script src="js/config.js?v=8"></script>
+<script src="js/shared-ui.js?v=8"></script>
+<script src="js/fx.js?v=8"></script>
+<script src="js/local-game.js?v=8"></script>
+<script src="js/multiplayer.js?v=8"></script>
+<script src="js/tutorial.js?v=8"></script>
+<script src="js/main.js?v=8"></script>
 </body>
 </html>

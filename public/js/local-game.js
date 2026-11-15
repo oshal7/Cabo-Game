@@ -16,6 +16,8 @@ const Local = (function () {
     if (k === 'mode') document.getElementById('diff-seg').style.opacity = v === 'pass' ? '.35' : '1';
   }
 
+  function setMode(v) { C.mode = v; }
+
   function mkDeck() { let d = []; for (const s of SUITS) for (const r of RANKS) d.push({ rank: r, suit: s }); d.push({ rank: 'JOKER', suit: '★' }, { rank: 'JOKER', suit: '★' }); return d; }
   function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = ~~(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 
@@ -839,5 +841,5 @@ const Local = (function () {
   }
   function toMenu() { if (G.players) stopTurnTimer(); closeOv(); Screens.show('setup'); TOTALS = []; G = {}; }
 
-  return { setSeg, startGame, callCabo, toggleScores, openMenu, toMenu, rerender: render, config: C };
+  return { setSeg, setMode, startGame, callCabo, toggleScores, openMenu, toMenu, rerender: render, config: C };
 })();
