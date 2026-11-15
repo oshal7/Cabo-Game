@@ -53,6 +53,8 @@ function createGame(names, round, totals) {
     turnsTaken: 0,
     finalPending: [],
     lastActions: {},       // seat -> short public description of their last move
+    history: [],           // recent discards: { seat, rank, suit, how }
+    topMatched: false,     // the current top card was already matched by someone
     drawnFromDiscard: false,
     phase: 'play',
     drawnCard: null,
@@ -85,13 +87,24 @@ function canCallCabo(game) {
   return game.caboBy === -1 && game.phase === 'play' && game.turnsTaken >= game.players.length;
 }
 
+// Every card that lands on the discard pile goes through here so the pile
+// history stays complete. A normal discard re-opens the pile for matching.
+function toPile(game, card, seat, how) {
+  game.discard.push({ rank: card.rank, suit: card.suit });
+  game.history.push({ seat, rank: card.rank, suit: card.suit, how });
+  if (game.history.length > 12) game.history.shift();
+  game.topMatched = how === 'match';
+}
+
 // Match rule: at the start of your turn (before drawing) you may throw a card
 // from your hand onto the discard pile if it has the same rank as the top
 // card. Right: it leaves your hand (you may try again). Wrong: the card is
 // shown to everyone and stays, you take a face-down penalty card, and you
 // can't try again this turn. Matching never triggers a card's power.
+// One match per turn, and each discarded card can be matched by only one
+// player (after a match the pile is closed until the next normal discard).
 function canMatch(game) {
-  return game.phase === 'play' && !game.matchBlocked && game.discard.length > 0;
+  return game.phase === 'play' && !game.matchBlocked && !game.topMatched && game.discard.length > 0;
 }
 
 function endTurn(game) {
@@ -186,7 +199,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (game.phase !== 'drawn') return fail('Wrong phase.');
       if (game.drawnFromDiscard) return fail('A card taken from the discard pile must be swapped into your hand.');
       const card = game.drawnCard;
-      game.discard.push(card);
+      toPile(game, card, seat, 'discard');
       game.drawnCard = null;
       moves.push({ from: 'drawn', to: 'discard' });
       act(`Discarded ${card.rank}${card.suit}`);
@@ -200,7 +213,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (!(idx >= 0 && idx < me.cards.length)) return fail('Invalid card.');
       const old = me.cards[idx];
       me.cards[idx] = { ...game.drawnCard, known: true };
-      game.discard.push(old);
+      toPile(game, old, seat, 'swap');
       game.drawnCard = null;
       banners.push({ scope: 'all', text: `${me.name} swapped card ${idx + 1}.`, level: 'info' });
       moves.push({ from: 'drawn', to: { seat, idx } }, { from: { seat, idx }, to: 'discard' });
@@ -229,7 +242,7 @@ function applyAction(game, seat, type, payload = {}) {
         act(`Played J — skipped ${game.players[next].name}`);
         flashes.push({ kind: 'skip', seat, target: next });
         moves.push({ from: 'drawn', to: 'discard' });
-        game.discard.push(game.drawnCard);
+        toPile(game, game.drawnCard, seat, 'power');
         game.drawnCard = null;
         game.phase = 'play';
         endTurn(game);
@@ -248,7 +261,7 @@ function applyAction(game, seat, type, payload = {}) {
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked their own card.`, level: 'info' });
       flashes.push({ kind: 'peek', seat, idx, by: seat, label: `${me.name} peeked!` });
       act(`Peeked own card ${idx + 1}`);
-      game.discard.push(game.drawnCard);
+      toPile(game, game.drawnCard, seat, 'power');
       game.drawnCard = null;
       game.phase = 'play';
       endTurn(game);
@@ -272,7 +285,7 @@ function applyAction(game, seat, type, payload = {}) {
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} peeked ${opp.name}'s card.`, level: 'info' });
       flashes.push({ kind: 'peek', seat: oppSeat, idx, by: seat, label: `${me.name} peeked!` });
       act(`Peeked ${opp.name}'s card ${idx + 1}`);
-      game.discard.push(game.drawnCard);
+      toPile(game, game.drawnCard, seat, 'power');
       game.drawnCard = null;
       game.phase = 'play';
       endTurn(game);
@@ -310,7 +323,7 @@ function applyAction(game, seat, type, payload = {}) {
       opp.cards[idx] = { ...c1, known: false };
       game.swapPick1 = null;
       game.swapSeen = false;
-      game.discard.push(game.drawnCard);
+      toPile(game, game.drawnCard, seat, 'power');
       game.drawnCard = null;
       game.phase = 'play';
       endTurn(game);
@@ -325,7 +338,10 @@ function applyAction(game, seat, type, payload = {}) {
       return ok();
     }
     case 'match': {
-      if (!canMatch(game)) return fail(game.matchBlocked ? 'No more match attempts this turn.' : 'You can only match before drawing.');
+      if (!canMatch(game)) {
+        if (game.topMatched) return fail('That card was already matched — wait for a new discard.');
+        return fail(game.matchBlocked ? 'Only one match per turn.' : 'You can only match before drawing.');
+      }
       const idx = payload.idx;
       if (!(idx >= 0 && idx < me.cards.length)) return fail('Invalid card.');
       const top = game.discard[game.discard.length - 1];
@@ -333,7 +349,8 @@ function applyAction(game, seat, type, payload = {}) {
       if (c.rank === top.rank) {
         moves.push({ from: { seat, idx }, to: 'discard' });
         me.cards.splice(idx, 1);
-        game.discard.push({ rank: c.rank, suit: c.suit });
+        toPile(game, c, seat, 'match');
+        game.matchBlocked = true; // one match per turn
         banners.push({ scope: 'all', text: `${me.name} matched a ${c.rank}!`, level: 'good' });
         act(`Matched a ${c.rank} — threw away card ${idx + 1}`);
         flashes.push({ kind: 'match', seat });
@@ -408,6 +425,9 @@ function buildView(game, viewer) {
     drawnFromDiscard: viewer === game.turn ? !!game.drawnFromDiscard : null,
     lastActions: game.lastActions,
     drawnPublic: game.drawnFromDiscard ? game.drawnCard : null,
+    discardRecent: game.discard.slice(-3),
+    history: game.history.slice().reverse(),
+    topMatched: !!game.topMatched,
     swapPick1: viewer === game.turn ? game.swapPick1 : null,
     players,
     totals: game.totals,

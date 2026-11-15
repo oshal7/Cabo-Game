@@ -107,3 +107,49 @@ test('a card taken from the discard pile has no power and must be swapped in', (
   assert.ok(applyAction(g, 0, 'swap_card', { idx: 2 }).ok);
   assert.strictEqual(g.turn, 1);
 });
+
+test('only one match per turn', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7')];
+  g.players[0].cards = [card('7', '♥'), card('7', '♦'), card('K')];
+  assert.ok(applyAction(g, 0, 'match', { idx: 0 }).ok);
+  assert.strictEqual(applyAction(g, 0, 'match', { idx: 0 }).ok, false);
+  assert.strictEqual(g.players[0].cards.length, 2);
+});
+
+test('a matched card cannot be matched again by the next player', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7')];
+  g.players[0].cards = [card('7', '♥'), card('K')];
+  g.players[1].cards = [card('7', '♦'), card('2')];
+  assert.ok(applyAction(g, 0, 'match', { idx: 0 }).ok);
+  g.deck.push(card('5'));
+  applyAction(g, 0, 'draw_deck');
+  // swap the 5 in for the K: the K is now the top, a fresh discard
+  applyAction(g, 0, 'swap_card', { idx: 0 });
+  assert.strictEqual(g.turn, 1);
+  assert.strictEqual(g.topMatched, false, 'a normal discard re-opens the pile');
+});
+
+test('after a match the pile is closed until the next normal discard', () => {
+  const g = createGame(['A', 'B']);
+  g.discard = [card('7')];
+  g.players[0].cards = [card('7', '♥'), card('K')];
+  g.players[1].cards = [card('7', '♦'), card('2')];
+  assert.ok(applyAction(g, 0, 'match', { idx: 0 }).ok);
+  // pretend the turn passes with the matched 7 still on top
+  g.turn = 1; g.matchBlocked = false; g.phase = 'play';
+  const r = applyAction(g, 1, 'match', { idx: 0 });
+  assert.strictEqual(r.ok, false);
+  assert.match(r.error, /already matched/);
+});
+
+test('discard history records who threw what and how', () => {
+  const g = createGame(['A', 'B']);
+  g.deck.push(card('9', '♣'));
+  applyAction(g, 0, 'draw_deck');
+  applyAction(g, 0, 'discard_drawn');
+  const v = buildView(g, 1);
+  assert.deepStrictEqual(v.history[0], { seat: 0, rank: '9', suit: '♣', how: 'discard' });
+  assert.strictEqual(v.discardRecent[v.discardRecent.length - 1].rank, '9');
+});

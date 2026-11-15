@@ -5,6 +5,11 @@ const FX = (function () {
   let layer = null;
   let marker = null;
   let markerTarget = null;
+  let markerLabel = '';
+  let timer = null;        // { deadline, total, mine }
+  let timerKey = null;
+  let timerTick = null;
+  let lastSec = null;
 
   function L() {
     if (!layer) {
@@ -125,6 +130,14 @@ const FX = (function () {
     ], { duration: 480, easing: 'ease-out' });
   }
 
+  // Pile reacts to a card landing on it: thump + little dust puff.
+  function thump(target) {
+    const e = node(target);
+    if (!e || off() || !e.animate) return;
+    e.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.1) rotate(-3deg)' }, { transform: 'scale(.97) rotate(1deg)' }, { transform: 'scale(1)' }], { duration: 420, easing: 'ease-out' });
+    burst(target, 'dust', 10);
+  }
+
   // A card being picked up and tilted towards the viewer (peeking).
   function lift(target) {
     const e = node(target);
@@ -169,23 +182,65 @@ const FX = (function () {
     marker.style.width = c.r.width + 8 + 'px';
     marker.style.height = c.r.height + 8 + 'px';
   }
-  function turnMarker(target, label, mine) {
+  // timer: { deadline, total } — draws a draining ring around the frame
+  // (green → amber → red) and a seconds counter on the tag.
+  function turnMarker(target, label, mine, t) {
     if (!marker) {
       marker = document.createElement('div');
       marker.className = 'fx-marker';
-      marker.innerHTML = '<span class="fx-mk-tag"></span>';
+      marker.innerHTML = '<svg class="fx-mk-ring" preserveAspectRatio="none"><rect class="bg" x="2" y="2" rx="14" ry="14" pathLength="100"/><rect class="fg" x="2" y="2" rx="14" ry="14" pathLength="100"/></svg><span class="fx-mk-tag"></span>';
       L().appendChild(marker);
       window.addEventListener('resize', placeMarker);
       const g = document.getElementById('game');
       if (g) g.addEventListener('scroll', placeMarker, { passive: true });
     }
     markerTarget = target;
+    markerLabel = label || '';
     marker.classList.toggle('mine', !!mine);
-    marker.querySelector('.fx-mk-tag').textContent = label || '';
     if (off()) marker.classList.add('static');
     placeMarker();
+    setTimer(t && t.deadline && t.total ? { deadline: t.deadline, total: t.total, mine: !!mine } : null);
   }
-  function hideMarker() { markerTarget = null; if (marker) marker.style.opacity = '0'; }
+  function setTimer(t) {
+    const key = t ? t.deadline + ':' + t.total : null;
+    const fg = marker.querySelector('rect.fg');
+    marker.classList.toggle('timed', !!t);
+    if (key !== timerKey) {
+      timerKey = key; timer = t; lastSec = null;
+      if (t) {
+        const left = Math.max(0, t.deadline - Date.now());
+        fg.style.transition = 'none';
+        fg.style.strokeDashoffset = String(100 - (100 * left) / t.total);
+        void fg.getBoundingClientRect();
+        fg.style.transition = `stroke-dashoffset ${left}ms linear`;
+        fg.style.strokeDashoffset = '100';
+      }
+    }
+    clearInterval(timerTick);
+    if (timer) { timerTick = setInterval(tickTimer, 250); tickTimer(); }
+    else updateTag(null);
+  }
+  function tickTimer() {
+    if (!timer || !marker) return;
+    const secs = Math.max(0, Math.ceil((timer.deadline - Date.now()) / 1000));
+    const frac = (timer.deadline - Date.now()) / timer.total;
+    marker.classList.toggle('warn', frac <= 1 / 3 && secs > 5);
+    marker.classList.toggle('crit', secs <= 5);
+    updateTag(secs);
+    if (secs !== lastSec) {
+      if (timer.mine && secs <= 5 && secs > 0) { sfx('tick'); if (secs === 5) { try { if (navigator.vibrate && Settings.get('sound')) navigator.vibrate([60, 60, 60]); } catch (e) {} } }
+      lastSec = secs;
+    }
+    if (secs <= 0) clearInterval(timerTick);
+  }
+  function updateTag(secs) {
+    const tag = marker.querySelector('.fx-mk-tag');
+    tag.innerHTML = esc(markerLabel) + (secs != null ? ` <b>${secs}s</b>` : '');
+  }
+  function hideMarker() {
+    markerTarget = null;
+    if (marker) { marker.style.opacity = '0'; clearInterval(timerTick); timer = null; timerKey = null; marker.classList.remove('timed', 'warn', 'crit'); }
+  }
 
   // Power used: icon erupts from the card with a burst.
   function power(cardTarget, seatTarget, rank) {
@@ -199,7 +254,7 @@ const FX = (function () {
 
   function clear() { if (layer) layer.querySelectorAll('.fx:not(.fx-marker)').forEach((d) => d.remove()); }
 
-  return { pop, stamp, burst, ring, beam, shake, lift, floatNum, crown, turnMarker, hideMarker, power, clear };
+  return { pop, stamp, burst, ring, beam, shake, lift, thump, floatNum, crown, turnMarker, hideMarker, power, clear };
 })();
 
 // End-of-round flourish: each player's score floats out of their hand and

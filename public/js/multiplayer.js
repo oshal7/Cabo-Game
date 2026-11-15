@@ -161,8 +161,9 @@ const MP = (function () {
           else FX.beam(seatNode(f.by), card(f.seat, f.idx), '👁', { tone: 'peek' }).then(() => flashPeekBlur(card(f.seat, f.idx), null, f.label, () => {}));
           break;
         case 'reveal': flashPeekReveal(card(f.seat, f.idx), { rank: f.rank, suit: f.suit }, f.label, () => {}); break;
-        case 'discard': setTimeout(() => { FX.ring('disc-top'); FX.pop(seatNode(f.seat), '🗑'); }, 380); break;
-        case 'swapin': setTimeout(() => { FX.ring(card(f.seat, f.idx), 'blue'); FX.pop(seatNode(f.seat), '⇅'); FX.ring('disc-top'); }, 380); break;
+        case 'discard': setTimeout(() => { FX.thump('disc-top'); FX.ring('disc-top'); }, 400); break;
+        case 'swapin': setTimeout(() => { FX.ring(card(f.seat, f.idx), 'blue'); FX.pop(seatNode(f.seat), '⇅'); FX.thump('disc-top'); }, 400); break;
+        case 'timeout': FX.stamp(seatNode(f.seat), "TIME'S UP", 'bad', { small: true }); break;
         case 'power': FX.power('dz-top', seatNode(f.seat), f.rank); sfx('special'); break;
         case 'skip':
           FX.beam(seatNode(f.seat), seatNode(f.target), '⏭', { tone: 'warn' }).then(() => FX.stamp(seatNode(f.target), 'SKIPPED', '', { dim: true }));
@@ -257,7 +258,8 @@ const MP = (function () {
     if (view.phase === 'reveal') FX.hideMarker();
     else {
       const me = view.turn === view.you;
-      FX.turnMarker(seatNode(view.turn), me ? 'YOUR TURN' : `${view.players[view.turn].name.toUpperCase()}'S TURN`, me);
+      FX.turnMarker(seatNode(view.turn), me ? 'YOUR TURN' : `${view.players[view.turn].name.toUpperCase()}'S TURN`, me,
+        view.turnDeadline && view.turnMs ? { deadline: view.turnDeadline, total: view.turnMs } : null);
     }
   }
 
@@ -384,18 +386,13 @@ const MP = (function () {
 
     const dse = document.getElementById('disc-el'); dse.innerHTML = '';
     if (view.discardCount > 0 && view.discardTop) {
-      const wrap = document.createElement('div'); wrap.className = 'disc-stack';
-      if (view.discardCount > 1) { const sh = document.createElement('div'); sh.className = 'dsh'; wrap.appendChild(sh); }
-      const canTake = myTurn && view.phase === 'play';
-      const card = mkCard(view.discardTop, true, { clickable: canTake });
-      card.id = 'disc-top';
-      if (canTake) card.onclick = () => action('draw_discard');
-      wrap.appendChild(card);
-      dse.appendChild(wrap);
+      const canTake = myTurn && view.phase === 'play' && !matchMode;
+      const recent = view.discardRecent && view.discardRecent.length ? view.discardRecent : [view.discardTop];
+      dse.appendChild(buildDiscardPile(recent, canTake, () => action('draw_discard'), view.topMatched));
     } else {
       const ep = document.createElement('div'); ep.className = 'empty-pile'; ep.id = 'disc-top'; ep.textContent = '+'; dse.appendChild(ep);
     }
-    document.getElementById('disc-cnt').textContent = view.discardCount + ' cards';
+    historyButton(view.discardCount, () => (lastView.history || []).map((h) => ({ ...h, name: (lastView.players[h.seat] || {}).name || '?', you: h.seat === lastView.you })));
   }
 
   function renderActions(view) {

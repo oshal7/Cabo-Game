@@ -40,6 +40,45 @@ function drawnActions(o){
   box.appendChild(row);
   return box;
 }
+// Discard pile fanned out: the last few cards peek out under the top one so
+// everyone can see what was recently thrown away.
+function buildDiscardPile(recent,canTake,onTake,matchedTop){
+  let wrap=document.createElement('div');wrap.className='disc-stack';
+  let n=recent.length;
+  recent.slice(0,-1).forEach((c,k)=>{
+    let depth=n-1-k;
+    let u=mkCard(c,true);u.classList.add('under');
+    let rot=(depth%2?-1:1)*(6+depth*4);
+    u.style.transform=`translate(${(depth%2?-1:1)*depth*7}px,${-depth*3}px) rotate(${rot}deg)`;
+    wrap.appendChild(u);
+  });
+  let top=mkCard(recent[n-1],true,{clickable:canTake});
+  top.id='disc-top';
+  if(canTake)top.onclick=onTake;
+  if(matchedTop){let m=document.createElement('div');m.className='matched-tag';m.textContent='MATCHED';m.title='Already matched — wait for a new discard';top.appendChild(m);}
+  wrap.appendChild(top);
+  return wrap;
+}
+// "History" button under the pile + the list it opens.
+const HOW={discard:{i:'↓',t:'threw away'},swap:{i:'⇅',t:'swapped out'},power:{i:'✨',t:'used the power of'},match:{i:'🎯',t:'matched with'}};
+function historyButton(count,getEntries){
+  let el=document.getElementById('disc-cnt');
+  el.innerHTML='';
+  let b=document.createElement('button');b.className='hist-btn';b.innerHTML=`📜 History · ${count}`;
+  b.title='See the last cards thrown on the pile';
+  b.onclick=()=>showHistory(getEntries());
+  el.appendChild(b);
+}
+// entries newest first: {name, rank, suit, how, you}
+function showHistory(entries){
+  let rows=entries.length?entries.map((e,k)=>{
+    let h=HOW[e.how]||HOW.discard;
+    let cls=e.rank==='JOKER'?'jk':(RED.has(e.suit)?'rd':'');
+    return `<div class="hrow" style="animation-delay:${k*40}ms"><span class="hico">${h.i}</span><span class="htxt"><b>${esc(e.you?'You':e.name)}</b> ${h.t}</span><span class="mini ${cls}">${e.rank==='JOKER'?'🃏':esc(e.rank)+esc(e.suit)}</span></div>`;
+  }).join(''):'<div class="dim-note">Nothing has been thrown on the pile yet this round.</div>';
+  showOv('Discard pile',`<div class="hlist">${rows}</div><div class="dim-note">Newest first · last 12 cards</div>`,[{t:'Close',c:'ab pri',fn:closeOv}],{wide:true});
+}
+
 // Power badge shown on the drawn card itself.
 function powerBadge(cardEl,rank,fromDiscard){
   if(fromDiscard||!POWERS[rank])return;
@@ -52,13 +91,15 @@ function cardName(c){if(!c||!c.rank||c.rank==='?')return'face-down card';if(c.ra
 
 // ── persisted settings ──
 const Settings=(function(){
-  let d={sound:true,memoryAid:false};
+  let d={sound:true,memoryAid:false,turnTimer:true};
   try{Object.assign(d,JSON.parse(localStorage.getItem('cabo_settings')||'{}'));}catch(e){}
   return{get:k=>d[k],set:(k,v)=>{d[k]=v;try{localStorage.setItem('cabo_settings',JSON.stringify(d));}catch(e){}}};
 })();
 const REDUCED_MOTION=window.matchMedia&&window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 // How long the "memorize your cards" window lasts at the start of a hand.
 const MEMORIZE_MS=4000;
+// Seconds per turn for human players (online uses the same value server-side).
+const TURN_SECONDS=45;
 function specLbl(r){return{7:'Peek Own',8:'Peek Own',9:'Peek Opp',10:'Peek Opp',J:'Skip Turn',Q:'Blind Swap',K:'Seen Swap'}[r]||'';}
 
 function mkCard(c,faceUp,opts={}){
@@ -176,6 +217,7 @@ function sfx(type){
     else if(type==='cabo'){for(let i=0;i<3;i++){let oo=ac.createOscillator(),gg=ac.createGain();oo.connect(gg);gg.connect(ac.destination);let tt=t+i*.1;oo.frequency.setValueAtTime(523+i*130,tt);gg.gain.setValueAtTime(.1,tt);gg.gain.linearRampToValueAtTime(0,tt+.15);oo.start(tt);oo.stop(tt+.16);}}
     else if(type==='match'){o.type='triangle';o.frequency.setValueAtTime(660,t);o.frequency.linearRampToValueAtTime(880,t+.12);g.gain.setValueAtTime(.09,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
     else if(type==='reveal'){o.type='sine';o.frequency.setValueAtTime(440,t);o.frequency.linearRampToValueAtTime(660,t+.2);g.gain.setValueAtTime(.08,t);g.gain.linearRampToValueAtTime(0,t+.4);o.start(t);o.stop(t+.41);}
+    else if(type==='tick'){o.type='square';o.frequency.setValueAtTime(1200,t);g.gain.setValueAtTime(.035,t);g.gain.linearRampToValueAtTime(0,t+.05);o.start(t);o.stop(t+.06);}
     else if(type==='turn'){o.type='sine';o.frequency.setValueAtTime(660,t);o.frequency.setValueAtTime(880,t+.09);g.gain.setValueAtTime(.06,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
     else if(type==='special'){o.type='sawtooth';o.frequency.setValueAtTime(500,t);o.frequency.linearRampToValueAtTime(300,t+.15);g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(0,t+.2);o.start(t);o.stop(t+.21);}
   }catch(e){}
@@ -259,7 +301,8 @@ function confetti(){
 // In-game settings toggles (shown inside the Menu overlay).
 function settingsHTML(){
   return `<div class="set-row"><span>Sound</span><button class="ab tog" data-set="sound">${Settings.get('sound')?'On':'Off'}</button></div>`+
-    `<div class="set-row"><span>Memory aid <small>(keep your known cards face-up)</small></span><button class="ab tog" data-set="memoryAid">${Settings.get('memoryAid')?'On':'Off'}</button></div>`;
+    `<div class="set-row"><span>Memory aid <small>(keep your known cards face-up)</small></span><button class="ab tog" data-set="memoryAid">${Settings.get('memoryAid')?'On':'Off'}</button></div>`+
+    `<div class="set-row"><span>Turn timer <small>(${TURN_SECONDS}s per turn vs AI / pass &amp; play — always on online)</small></span><button class="ab tog" data-set="turnTimer">${Settings.get('turnTimer')?'On':'Off'}</button></div>`;
 }
 function bindSettings(rerender){
   document.querySelectorAll('#ovb [data-set]').forEach(b=>{
@@ -308,6 +351,7 @@ function flyFrom(el,from,opts={}){
   let dx=from.left-to.left,dy=from.top-to.top;
   if(Math.abs(dx)<2&&Math.abs(dy)<2)return;
   let flip=opts.flip?' rotateY(90deg)':'';
+  if(el.id==='disc-top')flip+=' rotate(-200deg)';
   el.animate([
     {transform:`translate(${dx}px,${dy}px) scale(1.06)${flip}`,zIndex:50,boxShadow:'0 14px 30px rgba(0,0,0,.6)'},
     {transform:'translate(0,0) scale(1)',zIndex:50}

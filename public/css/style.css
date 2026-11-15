@@ -515,3 +515,33 @@ body{font-family:'DM Sans',sans-serif;color:#e8e0d0;position:relative}
 .card.clickable:hover{transform:translateY(-8px) rotate(-1.5deg)!important}
 @media (prefers-reduced-motion: reduce){#fx-layer{display:none}}
 .flying-card.trail{box-shadow:0 0 0 2px rgba(167,139,250,.8),0 0 26px rgba(139,92,246,.75),0 14px 30px rgba(0,0,0,.6)!important}
+/* turn timer ring drawn around the turn marker */
+.fx-mk-ring{position:absolute;inset:-2px;width:calc(100% + 4px);height:calc(100% + 4px);overflow:visible;opacity:0;transition:opacity .3s}
+.fx-marker.timed .fx-mk-ring{opacity:1}
+.fx-mk-ring rect{width:calc(100% - 4px);height:calc(100% - 4px);fill:none;stroke-width:4;vector-effect:non-scaling-stroke}
+.fx-mk-ring rect.bg{stroke:rgba(255,255,255,.08)}
+.fx-mk-ring rect.fg{stroke:#4ade80;stroke-dasharray:100;stroke-dashoffset:0;stroke-linecap:round;filter:drop-shadow(0 0 5px currentColor);transition:stroke .4s}
+.fx-marker.mine .fx-mk-ring rect.fg{stroke:var(--gold2)}
+.fx-marker.timed{border-color:transparent}
+.fx-marker.warn .fx-mk-ring rect.fg{stroke:#fb923c}
+.fx-marker.crit .fx-mk-ring rect.fg{stroke:#ef4444}
+.fx-marker.crit{animation:fx-crit .5s ease-in-out infinite alternate}
+@keyframes fx-crit{from{box-shadow:0 0 10px rgba(239,68,68,.3)}to{box-shadow:0 0 34px rgba(239,68,68,.75)}}
+.fx-mk-tag b{font-variant-numeric:tabular-nums;margin-left:3px}
+.fx-marker.warn .fx-mk-tag{background:#7c2d12;border-color:#fb923c;color:#fed7aa}
+.fx-marker.crit .fx-mk-tag{background:#7f1d1d;border-color:#ef4444;color:#fecaca}
+/* fanned discard pile */
+.disc-stack .card.under{position:absolute;left:0;top:0;filter:brightness(.78) saturate(.85);box-shadow:0 2px 8px rgba(0,0,0,.45);pointer-events:none}
+.disc-stack .card#disc-top{position:relative;z-index:2;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+.matched-tag{position:absolute;left:50%;bottom:6px;transform:translateX(-50%);font-family:'DM Sans',sans-serif;font-size:.5rem;font-weight:700;letter-spacing:.08em;padding:1px 6px;border-radius:7px;background:#14532d;color:#bbf7d0;border:1px solid #4ade80;white-space:nowrap}
+.fx-part.dust::before{background:rgba(232,224,208,.7);box-shadow:none;width:6px;height:6px}
+/* history */
+.hist-btn{font-family:'DM Sans',sans-serif;font-size:.62rem;color:#c9bfa9;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.14);border-radius:10px;padding:2px 8px;cursor:pointer;white-space:nowrap}
+.hist-btn:hover{color:var(--gold2);border-color:rgba(240,192,96,.45)}
+.hlist{display:flex;flex-direction:column;gap:5px;text-align:left;max-height:55vh;overflow-y:auto}
+.hrow{display:flex;align-items:center;gap:.6rem;padding:.4rem .6rem;border-radius:9px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);animation:row-in .3s ease both}
+.hrow:first-child{border-color:rgba(240,192,96,.45);background:rgba(212,168,67,.08)}
+.hico{width:1.4rem;text-align:center;font-size:.95rem;color:var(--gold2)}
+.htxt{flex:1;font-size:.78rem;color:#c9bfa9}
+.htxt b{color:#e8e0d0}
+.hrow .mini{font-size:.8rem;padding:2px 6px}

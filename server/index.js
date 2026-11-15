@@ -7,7 +7,7 @@ const { applyAction, buildView } = require('./cabo');
 
 // Turn timers: a disconnected player is auto-played quickly; a connected but
 // idle player gets a generous limit so one AFK seat can't freeze the room.
-const TURN_MS_CONNECTED = 90 * 1000;
+const TURN_MS_CONNECTED = 45 * 1000;
 const TURN_MS_DISCONNECTED = 15 * 1000;
 
 function cleanName(raw, fallback) {
@@ -41,19 +41,27 @@ function broadcastRoom(room) {
   io.to(room.code).emit('room_update', room.summary());
 }
 
+// One deadline per turn: it is set when the turn starts (or when the seat's
+// connection changes) and is NOT reset by the player's own actions.
 function scheduleTurnTimer(room) {
-  clearTimeout(room.turnTimer);
-  room.turnTimer = null;
   const game = room.game;
-  if (!game || game.phase === 'reveal' || !room.hasConnectedSeat()) { if (game) game.turnDeadline = null; return; }
+  if (!game || game.phase === 'reveal' || !room.hasConnectedSeat()) {
+    clearTimeout(room.turnTimer); room.turnTimer = null; room.timerKey = null;
+    if (game) game.turnDeadline = null;
+    return;
+  }
   const seat = room.seats[game.turn];
-  const ms = seat && seat.connected ? TURN_MS_CONNECTED : TURN_MS_DISCONNECTED;
-  const turnAtSchedule = game.turn;
-  const turnsAtSchedule = game.turnsTaken;
+  const connected = !!(seat && seat.connected);
+  const key = `${game.id}:${game.turnsTaken}:${connected}`;
+  if (key === room.timerKey && room.turnTimer) return;
+  clearTimeout(room.turnTimer);
+  room.timerKey = key;
+  const ms = connected ? TURN_MS_CONNECTED : TURN_MS_DISCONNECTED;
   game.turnDeadline = Date.now() + ms;
   game.turnMs = ms;
   room.turnTimer = setTimeout(() => {
-    if (room.game !== game || game.turn !== turnAtSchedule || game.turnsTaken !== turnsAtSchedule) return;
+    room.turnTimer = null;
+    if (room.game !== game || `${game.id}:${game.turnsTaken}:${connected}` !== key) return;
     autoPlay(room);
   }, ms);
 }
@@ -69,7 +77,8 @@ function autoPlay(room) {
     if (game.drawnFromDiscard) applyAction(game, seatIdx, 'swap_card', { idx: 0 });
     else applyAction(game, seatIdx, 'discard_drawn');
   }
-  io.to(room.code).emit('banner', { text: `${name} ran out of time — auto-played.`, level: 'warn' });
+  io.to(room.code).emit('banner', { text: `⏰ ${name} ran out of time — auto-played.`, level: 'warn' });
+  io.to(room.code).emit('flashes', [{ kind: 'timeout', seat: seatIdx }]);
   broadcastGame(room);
   if (game.phase === 'reveal') broadcastLobby();
 }
