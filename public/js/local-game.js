@@ -27,6 +27,14 @@ const Local = (function () {
   function queueFly(target, from, opts) { if (from) flyQ.push({ target, from, opts }); }
   function slotId(seat, idx) { return `card-${seat}-${idx}`; }
   function setAct(seat, text) { G.acts[seat] = text; }
+  // ── motion-graphics helpers ──
+  function seatNode(seat) { return seat === viewer() ? document.querySelector('.hz') : document.getElementById(`opz-${seat}`); }
+  function fxDiscard(seat) { setTimeout(() => { FX.ring('disc-top'); FX.pop(seatNode(seat), '🗑'); }, 380); }
+  function fxSwapIn(seat, idx) { setTimeout(() => { FX.ring(slotId(seat, idx), 'blue'); FX.pop(seatNode(seat), '⇅'); FX.ring('disc-top'); }, 380); }
+  function fxSkip(from, to) {
+    FX.beam(seatNode(from), seatNode(to), '⏭', { tone: 'warn' }).then(() => FX.stamp(seatNode(to), 'SKIPPED', '', { dim: true }));
+  }
+  function fxCabo(seat) { setTimeout(() => { FX.stamp(seatNode(seat), 'CABO!', 'cabo'); FX.ring(seatNode(seat), 'cabo', 3); }, 700); }
 
   function startGame() {
     C.name = (document.getElementById('pname').value.trim() || 'You').slice(0, 12);
@@ -106,6 +114,11 @@ const Local = (function () {
     let q = flyQ; flyQ = [];
     q.forEach((f) => flyFrom(f.target, f.from, f.opts));
     if (myTurn() && G.phase === 'play' && G.cueTurn !== G.turnsTaken && !(C.mode === 'pass')) { G.cueTurn = G.turnsTaken; if (G.turnsTaken > 0) yourTurnCue(); }
+    if (G.phase === 'reveal' || G.handoff) FX.hideMarker();
+    else {
+      let me = G.turn === viewer();
+      FX.turnMarker(seatNode(G.turn), me ? 'YOUR TURN' : `${G.players[G.turn].name.toUpperCase()}'S TURN`, me);
+    }
   }
   function scoreOf(i) { return G.players[i].cards.reduce((s, c) => s + cv(c.rank), 0); }
 
@@ -339,9 +352,11 @@ const Local = (function () {
   function doDiscardDrawn() {
     if (G.drawnFromDiscard) return;
     let card = G.drawnCard;
+    let seat = G.turn;
     discardDrawnCard(); sfx('discard');
     G.log = `${G.players[G.turn].name} discarded ${card.rank}${card.suit}.`;
     endTurn();
+    fxDiscard(seat);
   }
   // Match rule: before drawing, throw a same-rank card from your hand onto
   // the pile. Wrong guess: card is shown, stays, and you take a penalty card.
@@ -356,8 +371,9 @@ const Local = (function () {
       G.discard.push({ rank: c.rank, suit: c.suit });
       setAct(seat, `Matched a ${c.rank} — threw away card ${idx + 1}`);
       G.log = `${p.name} matched a ${c.rank}!`;
-      bnr(`${p.name === C.name && seat === 0 ? 'Match!' : p.name + ' matched a ' + c.rank + '!'}`, 'good'); sfx('match');
+      sfx('match');
       render();
+      setTimeout(() => { FX.burst('disc-top', 'good', 22); FX.ring('disc-top', 'good', 2); FX.stamp('disc-top', 'MATCH!', 'good', { small: true }); FX.pop(seatNode(seat), '🎯', { tone: 'good' }); }, 380);
       return true;
     }
     c.known = true;
@@ -368,8 +384,13 @@ const Local = (function () {
     }
     setAct(seat, `Wrong match (${c.rank}${c.suit}) — took a penalty card`);
     G.log = `${p.name} tried to match a ${c.rank} on a ${top.rank} — penalty card!`;
-    bnr(G.log, 'warn');
     flashCard(seat, idx, 'reveal', 'Not a match!');
+    sfx('special');
+    setTimeout(() => {
+      FX.stamp(slotId(seat, idx), '✗', 'bad', { small: true });
+      FX.burst(slotId(seat, idx), 'bad', 12);
+      FX.beam('deck-top', slotId(seat, p.cards.length - 1), '⚠', { tone: 'bad', lift: 30, duration: 600 });
+    }, 60);
     return false;
   }
   function youClick(idx) {
@@ -385,6 +406,7 @@ const Local = (function () {
       G.discard.push(old); G.drawnCard = null; sfx('swap');
       G.log = `${p.name} swapped card ${idx + 1}.`;
       endTurn();
+      fxSwapIn(v, idx);
       return;
     }
     if (G.phase === 'spec-peek-own') {
@@ -392,6 +414,7 @@ const Local = (function () {
       G.log = `${p.name} peeked their card ${idx + 1}.`;
       discardDrawnCard(); G.phase = 'play';
       flashCard(v, idx, 'reveal', 'You peeked!');
+      FX.pop(slotId(v, idx), '👁', { tone: 'good' });
       setTimeout(endTurn, 2000);
       return;
     }
@@ -405,15 +428,23 @@ const Local = (function () {
     if (!myTurn()) return;
     if (G.phase === 'spec-peek-opp-pick' && G.peekOppWho === oi) {
       G.log = `${G.players[G.turn].name} peeked ${G.players[oi].name}'s card ${idx + 1}.`;
-      discardDrawnCard(); G.phase = 'play';
-      flashCard(oi, idx, 'reveal', `${G.players[oi].name}'s card`);
-      setTimeout(endTurn, 2000);
+      let from = seatNode(G.turn);
+      discardDrawnCard(); G.phase = 'anim'; render();
+      FX.beam(from, slotId(oi, idx), '👁', { tone: 'peek' }).then(() => {
+        G.phase = 'play';
+        flashCard(oi, idx, 'reveal', `${G.players[oi].name}'s card`);
+        setTimeout(endTurn, 2000);
+      });
       return;
     }
     if (G.phase === 'spec-swap2' && G.swapPick1) {
       let p1 = G.swapPick1;
       let c1 = { ...G.players[p1.owner].cards[p1.idx] };
       let c2 = { ...G.players[oi].cards[idx] };
+      let seen = G.swapSeen;
+      G.phase = 'anim'; render();
+      FX.beam(slotId(p1.owner, p1.idx), slotId(oi, idx), seen ? '👑' : '🔀', { tone: 'power', lift: 40 }).then(() => {
+      G.swapSeen = seen;
       if (G.swapSeen) bnr(`Swapped! They had ${c2.rank}${c2.suit}`, 'info');
       else bnr('Blind swap done!', 'info');
       queueFly(slotId(p1.owner, p1.idx), rectOf(slotId(oi, idx)));
@@ -422,12 +453,16 @@ const Local = (function () {
       G.players[oi].cards[idx] = { ...c1, known: false, aiKnown: false, peekedBy: [] };
       sfx('swap'); G.log = `${G.players[G.turn].name} swapped with ${G.players[oi].name}'s card ${idx + 1}.`;
       G.swapPick1 = null; G.swapSeen = false;
-      discardDrawnCard(); endTurn(); return;
+      discardDrawnCard(); endTurn();
+      FX.ring(slotId(p1.owner, p1.idx), 'power'); FX.ring(slotId(oi, idx), 'power');
+      });
+      return;
     }
   }
   function useSpecial() {
     if (G.drawnFromDiscard) return;
     let r = G.drawnCard.rank;
+    FX.power('dz-top', null, r); sfx('special');
     if (r === '7' || r === '8') { G.phase = 'spec-peek-own'; render(); return; }
     if (r === '9' || r === '10') {
       G.peekOppWho = null;
@@ -440,7 +475,8 @@ const Local = (function () {
       G.players[next].skip = true;
       bnr(`${G.players[next].name}'s turn skipped!`, 'warn');
       G.log = `${G.players[G.turn].name} played J — skipped ${G.players[next].name}.`;
-      discardDrawnCard(); sfx('special'); endTurn(); return;
+      let from = G.turn;
+      discardDrawnCard(); endTurn(); fxSkip(from, next); return;
     }
     if (r === 'Q') { G.swapSeen = false; G.swapPick1 = null; G.phase = 'spec-swap1'; render(); return; }
     if (r === 'K') { G.swapSeen = true; G.swapPick1 = null; G.phase = 'spec-swap1'; render(); return; }
@@ -451,7 +487,9 @@ const Local = (function () {
     G.caboBy = G.turn;
     G.finalPending = G.players.map((_, i) => i).filter((i) => i !== G.turn);
     bnr(`${G.players[G.turn].name} calls CABO! Everyone gets one final turn.`, 'cabo'); sfx('cabo');
-    G.log = `${G.players[G.turn].name} called Cabo!`; endTurn();
+    G.log = `${G.players[G.turn].name} called Cabo!`;
+    let seat = G.turn;
+    endTurn(); fxCabo(seat);
   }
 
   // ── turn flow ──
@@ -466,7 +504,6 @@ const Local = (function () {
     for (let guard = 0; guard < n * 2; guard++) {
       let p = G.players[next];
       if (p.skip) {
-        bnr(`${p.name} is skipped!`, 'warn');
         p.skip = false;
         if (cabo) G.finalPending = G.finalPending.filter((s) => s !== next);
         next = (next + 1) % n; continue;
@@ -516,7 +553,7 @@ const Local = (function () {
       G.caboBy = ai_i; G.finalPending = G.players.map((_, i) => i).filter((i) => i !== ai_i);
       setAct(ai_i, 'Called CABO!');
       bnr(`${ai.name} calls CABO!`, 'cabo'); sfx('cabo'); G.log = `${ai.name} called Cabo!`;
-      endTurn(); return;
+      endTurn(); fxCabo(ai_i); return;
     }
     let top = G.discard[G.discard.length - 1];
     // match a known card of the same rank before drawing
@@ -576,7 +613,7 @@ const Local = (function () {
     }
     G.drawnCard = null;
     endTurn();
-    if (tgt !== -1) flashSwapGlow(slotId(ai_i, tgt));
+    if (tgt !== -1) fxSwapIn(ai_i, tgt); else fxDiscard(ai_i);
   }
 
   function aiShouldCabo(i) {
@@ -592,6 +629,7 @@ const Local = (function () {
 
   function aiSpec(card, ai_i) {
     let ai = G.players[ai_i], r = card.rank;
+    let showPower = () => { FX.power('dz-top', seatNode(ai_i), r); sfx('special'); };
     let finish = (delay) => setTimeout(() => { discardDrawnCard(); endTurn(); }, delay);
     if (r === '7' || r === '8') {
       let unk = ai.cards.findIndex((c) => !c.aiKnown);
@@ -599,9 +637,9 @@ const Local = (function () {
       ai.cards[unk].aiKnown = true;
       setAct(ai_i, `Used ${r}: peeked own card ${unk + 1}`);
       G.log = `${ai.name} peeked their own card ${unk + 1}.`;
-      bnr(`${ai.name} peeked their own card ${unk + 1}!`, 'info');
-      setTimeout(() => flashCard(ai_i, unk, 'peek', `${ai.name} peeked!`), 200);
-      finish(1600); return;
+      showPower();
+      setTimeout(() => { flashCard(ai_i, unk, 'peek', `${ai.name} peeked!`); FX.pop(slotId(ai_i, unk), '👁', { tone: 'good' }); }, 700);
+      finish(2300); return;
     }
     if (r === '9' || r === '10') {
       let s = randomOpp(ai_i);
@@ -613,17 +651,20 @@ const Local = (function () {
       let who = s === viewer() ? 'your' : `${G.players[s].name}'s`;
       setAct(ai_i, `Used ${r}: peeked ${who} card ${idx + 1}`);
       G.log = `${ai.name} peeked ${who} card ${idx + 1}.`;
-      bnr(`${ai.name} peeked ${who} card ${idx + 1}!`, 'warn');
-      setTimeout(() => flashCard(s, idx, 'peek', `${ai.name} peeked!`), 200);
-      finish(1800); return;
+      showPower();
+      setTimeout(() => {
+        FX.beam(seatNode(ai_i), slotId(s, idx), '👁', { tone: 'peek' }).then(() => flashCard(s, idx, 'peek', `${ai.name} peeked!`));
+      }, 600);
+      finish(2900); return;
     }
     if (r === 'J') {
       let next = (ai_i + 1) % G.players.length;
       G.players[next].skip = true;
-      bnr(`${ai.name} plays J — ${G.players[next].name} skipped!`, 'warn');
       G.log = `${ai.name} skipped ${G.players[next].name}.`;
       setAct(ai_i, `Played J — skipped ${G.players[next].name}`);
-      sfx('special'); discardDrawnCard(); endTurn(); return;
+      showPower();
+      setTimeout(() => { discardDrawnCard(); endTurn(); fxSkip(ai_i, next); }, 700);
+      return;
     }
     if (r === 'Q' || r === 'K') {
       let { worst, worstV } = aiWorst(ai);
@@ -646,14 +687,15 @@ const Local = (function () {
       let who = target.s === viewer() ? 'your' : `${G.players[target.s].name}'s`;
       G.log = `${ai.name} ${r === 'K' ? 'seen' : 'blind'}-swapped card ${worst + 1} with ${who} card ${target.idx + 1}!`;
       setAct(ai_i, `Used ${r}: swapped card ${worst + 1} with ${who} card ${target.idx + 1}`);
-      bnr(G.log, 'warn');
-      setTimeout(() => {
+      showPower();
+      setTimeout(() => FX.beam(slotId(ai_i, worst), slotId(target.s, target.idx), r === 'K' ? '👑' : '🔀', { tone: 'power', lift: 40 }).then(() => {
         animateSwap(ai_i, worst, target.s, target.idx, () => {
           ai.cards[worst] = { ...c2, aiKnown: seen, known: false, peekedBy: [] };
           G.players[target.s].cards[target.idx] = { ...c1, known: false, aiKnown: false, peekedBy: [ai_i] };
           discardDrawnCard(); endTurn();
+          FX.ring(slotId(ai_i, worst), 'power'); FX.ring(slotId(target.s, target.idx), 'power');
         });
-      }, 200);
+      }), 700);
       return;
     }
     setAct(ai_i, `Discarded ${card.rank}${card.suit}`);
@@ -683,7 +725,8 @@ const Local = (function () {
     document.body.appendChild(fly2);
     el1.style.opacity = '0';
     el2.style.opacity = '0';
-    let dur = 550, start = null;
+    let dur = 750, start = null;
+    fly1.classList.add('trail'); fly2.classList.add('trail');
     function step(ts) {
       if (!start) start = ts;
       let p = Math.min((ts - start) / dur, 1);
@@ -691,6 +734,8 @@ const Local = (function () {
       let lift = Math.sin(p * Math.PI) * 30;
       fly1.style.left = (r1.left + (r2.left - r1.left) * ep) + 'px'; fly1.style.top = (r1.top + (r2.top - r1.top) * ep - lift) + 'px';
       fly2.style.left = (r2.left + (r1.left - r2.left) * ep) + 'px'; fly2.style.top = (r2.top + (r1.top - r2.top) * ep + lift) + 'px';
+      let spin = Math.sin(p * Math.PI) * 18, sc = 1 + Math.sin(p * Math.PI) * 0.18;
+      fly1.style.transform = `rotate(${spin}deg) scale(${sc})`; fly2.style.transform = `rotate(${-spin}deg) scale(${sc})`;
       if (p < 1) requestAnimationFrame(step);
       else { fly1.remove(); fly2.remove(); el1.style.opacity = ''; el2.style.opacity = ''; callback(); }
     }
@@ -723,6 +768,9 @@ const Local = (function () {
       TOTALS[x.i] = t;
     });
     let gameOver = TOTALS.some((t) => t > TARGET);
+    let rfx = 0;
+    setTimeout(() => { revealFX(seatNode, scores.map((x) => x.s), winners); }, delay);
+    if (!REDUCED_MOTION) rfx = 300 + scores.length * 220 + 1100;
     setTimeout(() => showRoundResult({
       names: G.players.map((p) => p.name), roundScores: scores.map((x) => x.s), totals: TOTALS.slice(),
       winners, caboBy: G.caboBy, caboLost, resets, gameOver, you: viewer(),
@@ -732,7 +780,7 @@ const Local = (function () {
          { t: 'Main Menu', c: 'ab', fn: toMenu }]
       : [{ t: 'Next Round', c: 'ab pri', fn: () => { closeOv(); G.round++; initRound(); } },
          { t: 'New Game', c: 'ab', fn: () => { closeOv(); TOTALS = Array(C.np).fill(0); G.round = 1; initRound(); } },
-         { t: 'Main Menu', c: 'ab', fn: toMenu }]), delay + 400);
+         { t: 'Main Menu', c: 'ab', fn: toMenu }]), delay + rfx + 400);
   }
 
   function renderScoreboard() {

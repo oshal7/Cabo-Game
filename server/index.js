@@ -210,7 +210,10 @@ io.on('connection', (socket) => {
       broadcastGame(room);
       if (room.game.phase === 'reveal') broadcastLobby();
     };
-    if (hasPeek) setTimeout(sendState, 2000);
+    // peeks/powers play a short animation sequence before the table re-renders
+    const hasPower = result.flashes && result.flashes.some((f) => f.kind === 'powerswap' || f.kind === 'skip');
+    if (hasPeek) setTimeout(sendState, 2700);
+    else if (hasPower) setTimeout(sendState, 750);
     else sendState();
   });
 

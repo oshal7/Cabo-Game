@@ -131,6 +131,7 @@ function flashPeekBlur(cardElId, card, label, rerenderFn){
   lbl.innerHTML='<div class="pk-eye">&#128065;</div>'+(label?'<div class="pk-name">'+label+'</div>':'');
   blurCard.appendChild(lbl);
   cardEl.replaceWith(blurCard);
+  if(typeof FX!=='undefined'){FX.lift(blurCard);FX.ring(blurCard,'good');}
   sfx('peek');
   setTimeout(()=>rerenderFn(),1400);
 }
@@ -146,6 +147,7 @@ function flashPeekReveal(cardElId, card, label, rerenderFn){
   lbl.innerHTML='<div class="pk-eye">&#128065;</div>'+(label?'<div class="pk-name">'+label+'</div>':'');
   revCard.appendChild(lbl);
   cardEl.replaceWith(revCard);
+  if(typeof FX!=='undefined'){FX.lift(revCard);FX.burst(revCard,'',10);}
   sfx('reveal');
   setTimeout(()=>rerenderFn(),2000);
 }

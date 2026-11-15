@@ -5,6 +5,7 @@ const Screens = {
   show(name) {
     // visibility is a class so CSS can pick the layout (flex, or grid on wide screens)
     this.all.forEach((id) => document.getElementById(id).classList.toggle('on', id === name));
+    if (name !== 'game' && typeof FX !== 'undefined') { FX.hideMarker(); FX.clear(); }
   },
 };
 

@@ -137,18 +137,54 @@ const MP = (function () {
       if (res && res.ok === false) return bnr(res.error, 'warn');
       if (res && res.reveal) {
         const { seat, idx, rank, suit } = res.reveal;
-        flashPeekReveal(`card-${seat}-${idx}`, { rank, suit }, 'You peeked!', () => {});
+        const show = () => flashPeekReveal(`card-${seat}-${idx}`, { rank, suit }, seat === session.seat ? 'You peeked!' : 'You peeked', () => {});
+        // peeking at an opponent: an eye flies over to their card first
+        if (lastView && seat !== lastView.you) FX.beam(seatNode(lastView.you), `card-${seat}-${idx}`, '👁', { tone: 'peek' }).then(show);
+        else { show(); FX.pop(`card-${seat}-${idx}`, '👁', { tone: 'good' }); }
       }
     });
   }
 
+  function seatNode(seat) {
+    const you = lastView ? lastView.you : session.seat;
+    return seat === you ? document.querySelector('.hz') : document.getElementById(`opz-${seat}`);
+  }
+  // Server-sent events → motion graphics (played on the current table, the
+  // new state arrives right after and the overlay effects carry on above it).
   function onFlashes(flashes) {
     (flashes || []).forEach((f) => {
-      // the peeker sees the real card via the reveal flip instead of a blur
-      if (f.kind === 'peek' && f.by === session.seat) return;
-      if (f.kind === 'peek') flashPeekBlur(`card-${f.seat}-${f.idx}`, null, f.label, () => {});
-      if (f.kind === 'swap') flashSwapGlow(`card-${f.seat}-${f.idx}`);
-      if (f.kind === 'reveal') flashPeekReveal(`card-${f.seat}-${f.idx}`, { rank: f.rank, suit: f.suit }, f.label, () => {});
+      const card = (seat, idx) => `card-${seat}-${idx}`;
+      switch (f.kind) {
+        case 'peek':
+          if (f.by === session.seat) return; // the peeker gets the real card via the ack
+          if (f.seat === f.by) { flashPeekBlur(card(f.seat, f.idx), null, f.label, () => {}); FX.pop(card(f.seat, f.idx), '👁', { tone: 'good' }); }
+          else FX.beam(seatNode(f.by), card(f.seat, f.idx), '👁', { tone: 'peek' }).then(() => flashPeekBlur(card(f.seat, f.idx), null, f.label, () => {}));
+          break;
+        case 'reveal': flashPeekReveal(card(f.seat, f.idx), { rank: f.rank, suit: f.suit }, f.label, () => {}); break;
+        case 'discard': setTimeout(() => { FX.ring('disc-top'); FX.pop(seatNode(f.seat), '🗑'); }, 380); break;
+        case 'swapin': setTimeout(() => { FX.ring(card(f.seat, f.idx), 'blue'); FX.pop(seatNode(f.seat), '⇅'); FX.ring('disc-top'); }, 380); break;
+        case 'power': FX.power('dz-top', seatNode(f.seat), f.rank); sfx('special'); break;
+        case 'skip':
+          FX.beam(seatNode(f.seat), seatNode(f.target), '⏭', { tone: 'warn' }).then(() => FX.stamp(seatNode(f.target), 'SKIPPED', '', { dim: true }));
+          break;
+        case 'powerswap':
+          FX.beam(card(f.a.seat, f.a.idx), card(f.b.seat, f.b.idx), f.seen ? '👑' : '🔀', { tone: 'power', lift: 40 })
+            .then(() => setTimeout(() => { FX.ring(card(f.a.seat, f.a.idx), 'power'); FX.ring(card(f.b.seat, f.b.idx), 'power'); sfx('swap'); }, 450));
+          break;
+        case 'match':
+          sfx('match');
+          setTimeout(() => { FX.burst('disc-top', 'good', 22); FX.ring('disc-top', 'good', 2); FX.stamp('disc-top', 'MATCH!', 'good', { small: true }); FX.pop(seatNode(f.seat), '🎯', { tone: 'good' }); }, 380);
+          break;
+        case 'nomatch':
+          sfx('special');
+          setTimeout(() => { FX.stamp(card(f.seat, f.idx), '✗', 'bad', { small: true }); FX.burst(card(f.seat, f.idx), 'bad', 12); }, 60);
+          break;
+        case 'cabo':
+          sfx('cabo');
+          setTimeout(() => { FX.stamp(seatNode(f.seat), 'CABO!', 'cabo'); FX.ring(seatNode(f.seat), 'cabo', 3); }, 700);
+          break;
+        case 'swap': flashSwapGlow(card(f.seat, f.idx)); break;
+      }
     });
   }
 
@@ -186,7 +222,11 @@ const MP = (function () {
     if (view.phase === 'reveal' && revealShownFor !== gid) {
       revealShownFor = gid;
       let delay = revealAnimation();
-      setTimeout(() => showRevealOverlay(view), delay + 400);
+      const scores = view.roundScores || view.players.map(() => 0);
+      const winners = view.winnerSeats && view.winnerSeats.length ? view.winnerSeats : [view.winnerSeat];
+      setTimeout(() => revealFX(seatNode, scores, winners), delay);
+      const rfx = REDUCED_MOTION ? 0 : 300 + scores.length * 220 + 1100;
+      setTimeout(() => showRevealOverlay(view), delay + rfx + 400);
     }
     startCountdown();
     const cueKey = `${gid}:${view.turnNo}`;
@@ -214,13 +254,18 @@ const MP = (function () {
     renderCenter(view);
     renderActions(view);
     renderScoreboard(view);
+    if (view.phase === 'reveal') FX.hideMarker();
+    else {
+      const me = view.turn === view.you;
+      FX.turnMarker(seatNode(view.turn), me ? 'YOUR TURN' : `${view.players[view.turn].name.toUpperCase()}'S TURN`, me);
+    }
   }
 
   function renderOpps(view) {
     const row = document.getElementById('opps'); row.innerHTML = '';
     view.players.forEach((p, i) => {
       if (i === view.you) return;
-      const z = document.createElement('div'); z.className = 'opz' + (view.turn === i && view.phase !== 'reveal' ? ' active' : '');
+      const z = document.createElement('div'); z.className = 'opz' + (view.turn === i && view.phase !== 'reveal' ? ' active' : ''); z.id = `opz-${i}`;
       const nm = document.createElement('div'); nm.className = 'pnm';
       if (view.turn === i) { const d = document.createElement('div'); d.className = 'tdot'; nm.appendChild(d); }
       const ns = document.createElement('span'); ns.textContent = p.name; nm.appendChild(ns);

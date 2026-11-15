@@ -190,6 +190,7 @@ function applyAction(game, seat, type, payload = {}) {
       game.drawnCard = null;
       moves.push({ from: 'drawn', to: 'discard' });
       act(`Discarded ${card.rank}${card.suit}`);
+      flashes.push({ kind: 'discard', seat });
       endTurn(game);
       return ok();
     }
@@ -204,6 +205,7 @@ function applyAction(game, seat, type, payload = {}) {
       banners.push({ scope: 'all', text: `${me.name} swapped card ${idx + 1}.`, level: 'info' });
       moves.push({ from: 'drawn', to: { seat, idx } }, { from: { seat, idx }, to: 'discard' });
       act(`Swapped card ${idx + 1}, discarded ${old.rank}${old.suit}`);
+      flashes.push({ kind: 'swapin', seat, idx });
       endTurn(game);
       return ok();
     }
@@ -212,6 +214,7 @@ function applyAction(game, seat, type, payload = {}) {
       if (game.drawnFromDiscard) return fail('Cards taken from the discard pile have no power.');
       const r = game.drawnCard.rank;
       if (!isSpec(r)) return fail('Drawn card has no special power.');
+      flashes.push({ kind: 'power', seat, rank: r });
       if (r === '7' || r === '8') { game.phase = 'spec-peek-own'; return ok(); }
       if (r === '9' || r === '10') {
         game.peekOppWho = null;
@@ -224,6 +227,7 @@ function applyAction(game, seat, type, payload = {}) {
         game.players[next].skip = true;
         banners.push({ scope: 'all', text: `${me.name} played J — ${game.players[next].name}'s turn skipped!`, level: 'warn' });
         act(`Played J — skipped ${game.players[next].name}`);
+        flashes.push({ kind: 'skip', seat, target: next });
         moves.push({ from: 'drawn', to: 'discard' });
         game.discard.push(game.drawnCard);
         game.drawnCard = null;
@@ -300,7 +304,7 @@ function applyAction(game, seat, type, payload = {}) {
       else banners.push({ scope: seat, text: 'Blind swap done!', level: 'info' });
       banners.push({ scope: 'others', exclude: seat, text: `${me.name} swapped with ${opp.name}.`, level: 'warn' });
       act(`${game.swapSeen ? 'Seen' : 'Blind'}-swapped card ${p1.idx + 1} with ${opp.name}'s card ${idx + 1}`);
-      flashes.push({ kind: 'swap', seat: p1.owner, idx: p1.idx }, { kind: 'swap', seat: oppSeat, idx });
+      flashes.push({ kind: 'powerswap', seat, a: { seat: p1.owner, idx: p1.idx }, b: { seat: oppSeat, idx }, seen: !!game.swapSeen });
       moves.push({ from: { seat: p1.owner, idx: p1.idx }, to: { seat: oppSeat, idx } }, { from: { seat: oppSeat, idx }, to: { seat: p1.owner, idx: p1.idx } });
       game.players[p1.owner].cards[p1.idx] = { ...c2, known: game.swapSeen };
       opp.cards[idx] = { ...c1, known: false };
@@ -332,12 +336,14 @@ function applyAction(game, seat, type, payload = {}) {
         game.discard.push({ rank: c.rank, suit: c.suit });
         banners.push({ scope: 'all', text: `${me.name} matched a ${c.rank}!`, level: 'good' });
         act(`Matched a ${c.rank} — threw away card ${idx + 1}`);
+        flashes.push({ kind: 'match', seat });
         return ok({ matched: true });
       }
       // wrong: show the card to everyone, keep it, take a penalty card
       c.known = true;
       game.matchBlocked = true;
       flashes.push({ kind: 'reveal', seat, idx, rank: c.rank, suit: c.suit, label: 'Not a match!' });
+      flashes.push({ kind: 'nomatch', seat, idx, penaltyIdx: me.cards.length });
       if (ensureDeck(game)) {
         me.cards.push({ ...game.deck.pop(), known: false });
         moves.push({ from: 'deck', to: { seat, idx: me.cards.length - 1 } });
@@ -353,6 +359,7 @@ function applyAction(game, seat, type, payload = {}) {
       game.caboBy = seat;
       game.finalPending = game.players.map((_, i) => i).filter((i) => i !== seat);
       act('Called CABO!');
+      flashes.push({ kind: 'cabo', seat });
       banners.push({ scope: 'all', text: `${me.name} calls CABO! Everyone else gets one final turn.`, level: 'cabo' });
       endTurn(game);
       return ok();
