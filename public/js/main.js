@@ -1,7 +1,7 @@
 // Top-level wiring: screen switching, menu inputs, and routing the shared
 // in-game buttons (Call Cabo / Scores / Menu) to whichever mode is active.
 const Screens = {
-  all: ['setup', 'mp-room', 'game'],
+  all: ['setup', 'mp-room', 'game', 'tutorial'],
   show(name) {
     // visibility is a class so CSS can pick the layout (flex, or grid on wide screens)
     this.all.forEach((id) => document.getElementById(id).classList.toggle('on', id === name));
@@ -31,6 +31,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   });
   document.getElementById('deal-btn').addEventListener('click', () => { ActiveGame = Local; Local.startGame(); });
+  // How to Play: lessons + guided practice round. Pulses until finished once.
+  const howto = document.getElementById('howto-btn');
+  if (!Settings.get('tutDone')) howto.classList.add('fresh');
+  howto.addEventListener('click', () => { howto.classList.remove('fresh'); Tutorial.open(); });
   document.getElementById('rules-toggle').addEventListener('click', () => {
     const drop = document.getElementById('rules-drop');
     drop.classList.toggle('open');
@@ -85,6 +89,9 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   Screens.show('setup');
+  // ?learn (or #learn) opens How to Play directly — handy for sharing.
+  const qs = new URLSearchParams(location.search);
+  if (qs.has('learn') || location.hash === '#learn') Tutorial.open(qs.get('learn') === 'practice' ? 'practice' : undefined);
   // Only open a socket eagerly if we have a saved room to rejoin (e.g. after
   // a refresh mid-game) — otherwise wait until the user picks Online mode,
   // so local play never depends on the multiplayer backend being reachable.

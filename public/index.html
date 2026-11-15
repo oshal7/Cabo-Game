@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CABO — The Card Game</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="css/style.css?v=5"/>
+<link rel="stylesheet" href="css/style.css?v=6"/>
+<link rel="stylesheet" href="css/tutorial.css?v=6"/>
 </head>
 <body>
 <div id="scale-root">
@@ -14,6 +15,7 @@
 <div id="setup">
   <div class="logo">CABO</div>
   <div class="logo-sub">THE CARD GAME</div>
+  <button class="howto-btn" id="howto-btn"><span class="hb-ic">▶</span><span><b>How to play</b> <small>· 2-min lessons + practice</small></span></button>
 
   <div class="sbox">
     <div class="slbl">PLAY MODE</div>
@@ -82,6 +84,9 @@
     <div class="mp-err" id="mp-err"></div>
   </div>
 </div>
+
+<!-- HOW TO PLAY (built by tutorial.js) -->
+<div id="tutorial"></div>
 
 <!-- MULTIPLAYER WAITING ROOM -->
 <div id="mp-room">
@@ -157,10 +162,11 @@
 </div><!-- /scale-root -->
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="js/config.js?v=5"></script>
-<script src="js/shared-ui.js?v=5"></script>
-<script src="js/local-game.js?v=5"></script>
-<script src="js/multiplayer.js?v=5"></script>
-<script src="js/main.js?v=5"></script>
+<script src="js/config.js?v=6"></script>
+<script src="js/shared-ui.js?v=6"></script>
+<script src="js/local-game.js?v=6"></script>
+<script src="js/multiplayer.js?v=6"></script>
+<script src="js/tutorial.js?v=6"></script>
+<script src="js/main.js?v=6"></script>
 </body>
 </html>
