@@ -199,29 +199,8 @@ function flashSwapGlow(cardElId){
   setTimeout(()=>{if(cardEl.parentNode)cardEl.classList.remove('ai-swap-flash');},600);
 }
 
-// ── SFX ──
-let AC=null;
-function getAC(){if(!AC)try{AC=new AudioContext();}catch(e){}return AC;}
-function sfx(type){
-  if(!Settings.get('sound'))return;
-  try{
-    let ac=getAC();if(!ac)return;
-    if(ac.state==='suspended')ac.resume();
-    let o=ac.createOscillator(),g=ac.createGain();
-    o.connect(g);g.connect(ac.destination);
-    let t=ac.currentTime;
-    if(type==='draw'){o.frequency.setValueAtTime(440,t);o.frequency.linearRampToValueAtTime(520,t+.07);g.gain.setValueAtTime(.08,t);g.gain.linearRampToValueAtTime(0,t+.12);o.start(t);o.stop(t+.13);}
-    else if(type==='discard'){o.frequency.setValueAtTime(380,t);o.frequency.linearRampToValueAtTime(260,t+.1);g.gain.setValueAtTime(.07,t);g.gain.linearRampToValueAtTime(0,t+.15);o.start(t);o.stop(t+.16);}
-    else if(type==='swap'){o.type='triangle';o.frequency.setValueAtTime(600,t);o.frequency.linearRampToValueAtTime(900,t+.08);g.gain.setValueAtTime(.06,t);g.gain.linearRampToValueAtTime(0,t+.18);o.start(t);o.stop(t+.19);}
-    else if(type==='peek'){o.type='sine';o.frequency.setValueAtTime(800,t);o.frequency.linearRampToValueAtTime(1100,t+.1);g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(0,t+.2);o.start(t);o.stop(t+.21);}
-    else if(type==='cabo'){for(let i=0;i<3;i++){let oo=ac.createOscillator(),gg=ac.createGain();oo.connect(gg);gg.connect(ac.destination);let tt=t+i*.1;oo.frequency.setValueAtTime(523+i*130,tt);gg.gain.setValueAtTime(.1,tt);gg.gain.linearRampToValueAtTime(0,tt+.15);oo.start(tt);oo.stop(tt+.16);}}
-    else if(type==='match'){o.type='triangle';o.frequency.setValueAtTime(660,t);o.frequency.linearRampToValueAtTime(880,t+.12);g.gain.setValueAtTime(.09,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
-    else if(type==='reveal'){o.type='sine';o.frequency.setValueAtTime(440,t);o.frequency.linearRampToValueAtTime(660,t+.2);g.gain.setValueAtTime(.08,t);g.gain.linearRampToValueAtTime(0,t+.4);o.start(t);o.stop(t+.41);}
-    else if(type==='tick'){o.type='square';o.frequency.setValueAtTime(1200,t);g.gain.setValueAtTime(.035,t);g.gain.linearRampToValueAtTime(0,t+.05);o.start(t);o.stop(t+.06);}
-    else if(type==='turn'){o.type='sine';o.frequency.setValueAtTime(660,t);o.frequency.setValueAtTime(880,t+.09);g.gain.setValueAtTime(.06,t);g.gain.linearRampToValueAtTime(0,t+.25);o.start(t);o.stop(t+.26);}
-    else if(type==='special'){o.type='sawtooth';o.frequency.setValueAtTime(500,t);o.frequency.linearRampToValueAtTime(300,t+.15);g.gain.setValueAtTime(.05,t);g.gain.linearRampToValueAtTime(0,t+.2);o.start(t);o.stop(t+.21);}
-  }catch(e){}
-}
+// ── SFX ── (synth engine lives in audio.js)
+function sfx(type){if(typeof Sound!=='undefined')Sound.play(type);}
 
 // ── overlay / banner ──
 function showOv(title,body,btns,opts={}){
@@ -283,6 +262,7 @@ function showRoundResult(d,btns){
     `<div class="hero${youWon?' won':''}"><div class="hero-ic">${youWon?'🏆':'👑'}</div><div><div class="hero-t">${esc(heroTitle)}</div><div class="hero-s">${esc(heroSub)}</div></div></div>`+
     notes+`<div class="rlist">${rows}</div>`+
     (d.gameOver?'':`<div class="dim-note">Scores add up each round. Past ${target} ends the game — lowest total wins.</div>`),btns,{wide:true});
+  sfx(youWon?'win':'lose');
   if(youWon&&!REDUCED_MOTION)confetti();
 }
 function confetti(){
@@ -300,16 +280,21 @@ function confetti(){
 
 // In-game settings toggles (shown inside the Menu overlay).
 function settingsHTML(){
-  return `<div class="set-row"><span>Sound</span><button class="ab tog" data-set="sound">${Settings.get('sound')?'On':'Off'}</button></div>`+
+  return (typeof audioControlsHTML==='function'?audioControlsHTML():'')+
     `<div class="set-row"><span>Memory aid <small>(keep your known cards face-up)</small></span><button class="ab tog" data-set="memoryAid">${Settings.get('memoryAid')?'On':'Off'}</button></div>`+
     `<div class="set-row"><span>Turn timer <small>(${TURN_SECONDS}s per turn vs AI / pass &amp; play — always on online)</small></span><button class="ab tog" data-set="turnTimer">${Settings.get('turnTimer')?'On':'Off'}</button></div>`;
 }
 function bindSettings(rerender){
+  if(typeof bindAudioControls==='function')bindAudioControls(document.getElementById('ovb'));
   document.querySelectorAll('#ovb [data-set]').forEach(b=>{
     b.onclick=()=>{let k=b.dataset.set;Settings.set(k,!Settings.get(k));b.textContent=Settings.get(k)?'On':'Off';updateSoundBtn();rerender&&rerender();};
   });
 }
-function updateSoundBtn(){let b=document.getElementById('sound-btn');if(b){b.textContent=Settings.get('sound')?'🔊':'🔇';b.setAttribute('aria-label',Settings.get('sound')?'Mute sound':'Unmute sound');}}
+function updateSoundBtn(){
+  const m=Settings.get('music'),fx=Settings.get('sound');
+  const ic=m?'🎵':fx?'🔊':'🔇',lbl=`Sound settings (music ${m?'on':'off'}, effects ${fx?'on':'off'})`;
+  ['sound-btn','audio-fab'].forEach(id=>{let b=document.getElementById(id);if(b){b.querySelector('.ic')?b.querySelector('.ic').textContent=ic:b.textContent=ic;b.setAttribute('aria-label',lbl);b.classList.toggle('muted',!m&&!fx);}});
+}
 
 // Banners queue up instead of overwriting each other, so quick sequences
 // (e.g. an AI skip followed by a Cabo call) are all readable.
@@ -364,7 +349,7 @@ function dealAnimation(){
   if(!from)return;
   let cards=[...document.querySelectorAll('#opps .card, #ycards .card')];
   cards.forEach((el,i)=>flyFrom(el,from,{delay:i*55,duration:380}));
-  sfx('draw');
+  sfx('deal');
 }
 // Flip every card face-up one after another at the end of a hand.
 function revealAnimation(){

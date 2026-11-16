@@ -80,7 +80,11 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('cabo-btn').addEventListener('click', () => ActiveGame.callCabo());
   document.getElementById('scores-btn').addEventListener('click', () => ActiveGame.toggleScores());
   document.getElementById('menu-btn').addEventListener('click', () => ActiveGame.openMenu());
-  document.getElementById('sound-btn').addEventListener('click', () => { Settings.set('sound', !Settings.get('sound')); updateSoundBtn(); });
+  // Sound: music + effects popover (top bar in-game, corner button on menus)
+  ['sound-btn', 'audio-fab'].forEach((id) => {
+    const b = document.getElementById(id);
+    b.addEventListener('click', () => openAudioPanel(b));
+  });
   updateSoundBtn();
 
   // remember names between visits

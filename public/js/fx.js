@@ -54,6 +54,8 @@ const FX = (function () {
 
   // A big rubber stamp that slams onto a target.
   function stamp(target, text, tone, opts = {}) {
+    const cue = { '✗': 'wrong', SKIPPED: 'skip', "TIME'S UP": 'timeout' }[text];
+    if (cue) sfx(cue);
     const c = box(target);
     if (!c || off()) return;
     if (opts.dim) {
@@ -153,6 +155,7 @@ const FX = (function () {
   // Score number that floats up out of a player's hand.
   function floatNum(target, text, tone, delay = 0) {
     setTimeout(() => {
+      sfx('score');
       const c = box(target);
       if (!c || off()) return;
       const d = add('fx-num ' + (tone || ''), `<span>${esc(text)}</span>`, c.x, c.y);
@@ -163,6 +166,7 @@ const FX = (function () {
   // Crown dropping onto the winner.
   function crown(target, delay = 0) {
     setTimeout(() => {
+      sfx('crown');
       const c = box(target);
       if (!c || off()) return;
       const d = add('fx-crown', '<span>👑</span>', c.x, c.r.top);

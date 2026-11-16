@@ -5,14 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>CABO — The Card Game</title>
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet"/>
-<link rel="stylesheet" href="css/style.css?v=8"/>
-<link rel="stylesheet" href="css/tutorial.css?v=8"/>
+<link rel="stylesheet" href="css/style.css?v=9"/>
+<link rel="stylesheet" href="css/tutorial.css?v=9"/>
 </head>
 <body>
 <div id="scale-root">
 
 <!-- MENU / SETUP -->
 <div id="setup">
+  <button class="audio-fab" id="audio-fab" aria-label="Sound settings"><span class="ic">🎵</span><span class="fab-txt">Sound</span></button>
   <div class="logo">CABO</div>
   <div class="logo-sub">THE CARD GAME</div>
 
@@ -104,7 +105,7 @@
     <button class="cabo-btn" id="cabo-btn">CALL CABO</button>
     <div class="rbadge" id="rbadge">ROUND 1</div>
     <div class="tr">
-      <button class="sc-toggle" id="sound-btn" aria-label="Mute sound">🔊</button>
+      <button class="sc-toggle" id="sound-btn" aria-label="Sound settings">🎵</button>
       <button class="sc-toggle rules-tg" data-rules aria-label="Rules">📖<span class="rt-txt"> Rules</span></button>
       <button class="sc-toggle" id="scores-btn">Scores</button>
       <button class="mbtn" id="menu-btn">≡ Menu</button>
@@ -153,18 +154,22 @@
   </div>
 </div>
 
+<!-- SOUND POPOVER (audio.js) -->
+<div id="audio-pop" role="dialog" aria-label="Sound settings"></div>
+
 <!-- RULES SHEET (home + in-game; built by rulesSheet() in shared-ui.js) -->
 <div id="rules-sheet" role="dialog" aria-modal="true" aria-label="Rules"></div>
 
 </div><!-- /scale-root -->
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-<script src="js/config.js?v=8"></script>
-<script src="js/shared-ui.js?v=8"></script>
-<script src="js/fx.js?v=8"></script>
-<script src="js/local-game.js?v=8"></script>
-<script src="js/multiplayer.js?v=8"></script>
-<script src="js/tutorial.js?v=8"></script>
-<script src="js/main.js?v=8"></script>
+<script src="js/config.js?v=9"></script>
+<script src="js/shared-ui.js?v=9"></script>
+<script src="js/audio.js?v=9"></script>
+<script src="js/fx.js?v=9"></script>
+<script src="js/local-game.js?v=9"></script>
+<script src="js/multiplayer.js?v=9"></script>
+<script src="js/tutorial.js?v=9"></script>
+<script src="js/main.js?v=9"></script>
 </body>
 </html>
